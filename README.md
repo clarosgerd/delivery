@@ -1,64 +1,82 @@
-<<<<<<< HEAD
-# delivery
-delivery para eventos
-=======
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# elascenso/delivery
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Servicio Laravel independiente para operar la **entrega de kits** de los
+eventos de [Pass2Go](../event) — envíos a domicilio con repartidores y
+tracking GPS en vivo, más una pantalla POS para retiro en sitio el día del
+evento. Repo y base de datos propios; no comparte código con `elascenso/event`
+ni con `ApiRestEvent`, y no requiere ningún cambio en ninguno de los dos.
 
-## About Laravel
+Detalle completo del diseño y las decisiones en
+`elascenso/event/brain/PLAN-SISTEMA-DELIVERY-STANDALONE-01082026.md`.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Qué hace
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Importa eventos** desde `ApiRestEvent` vía un link firmado
+  (`delivery.dashboard.json`, generado con
+  `php artisan delivery:generar-link {evento}` del lado de `ApiRestEvent`,
+  no expira) — un solo pegado manual por evento, después se sincroniza solo.
+- **Envíos a domicilio**: asigna repartidor, sigue el estado
+  (pendiente → confirmado → entregado/cancelado) y reporta cada cambio de
+  vuelta a `ApiRestEvent` (push-back vía el link firmado individual que ya
+  trae cada participante) — sin necesidad de ningún endpoint nuevo del lado
+  de `ApiRestEvent`.
+- **Repartidores**: acceso por token opaco (`/repartidor/{token}`, sin
+  login), tracking GPS en vivo (`navigator.geolocation.watchPosition()`) y
+  mapa de administración en `/mapa` (Leaflet + OpenStreetMap).
+- **POS de retiro en sitio**: pantalla de mostrador (`/pos`) para cuando el
+  participante retira su kit en persona el día del evento — cubre a todos
+  los pagados, no solo a quienes pidieron delivery.
+- **Sincronización automática**: `Schedule::command(...)->everyFiveMinutes()`
+  (ver `routes/console.php`), más un botón "Sincronizar ahora" para no
+  esperar.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Requisitos
 
-## Learning Laravel
+- PHP ^8.2, Laravel 12
+- MySQL/MariaDB (base `elascenso_delivery`)
+- Sin Node/npm: la UI usa Tailwind vía CDN, no hay build step
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Instalación local
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+```
 
-## Laravel Sponsors
+Editar `.env`: `DB_DATABASE=elascenso_delivery`, `DB_USERNAME`/`DB_PASSWORD`
+según tu MySQL local.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```bash
+php artisan migrate --seed
+php artisan serve --port=8010
+```
 
-### Premium Partners
+Login de admin de desarrollo: `admin@delivery.local` / `delivery123`
+(cambiar antes de cualquier ambiente real).
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+Para que la sincronización automática corra en local:
 
-## Contributing
+```bash
+php artisan schedule:work
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+(en producción, un cron del sistema operativo dispara `schedule:run` cada
+minuto — ver `cron-schedule-run.sh` y
+`elascenso/event/brain/MANUAL-INSTALACION-DELIVERY-CPANEL-01082026.md`).
 
-## Code of Conduct
+## Estructura relevante
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```
+app/Models/          EnvioDelivery, Repartidor, UbicacionRepartidor,
+                      RetiroSitio, EventoDeliveryConfig, EventoRetiroConfig
+app/Services/         DeliverySyncService, RetiroSyncService
+app/Console/Commands/ SincronizarDelivery, SincronizarRetiro
+                      (delivery:sincronizar-todos / retiro:sincronizar-todos)
+resources/views/      Blade + Tailwind CDN, componentes en components/
+```
 
-## Security Vulnerabilities
+## Pruebas
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
->>>>>>> 3e14d2e (first commit)
+Checklist de QA visual (login, dashboard, repartidor en celular, mapa, POS
+en tablet) en `elascenso/event/brain/TEST_PLAN_DELIVERY_VISUAL.md`.
