@@ -52,7 +52,7 @@ php artisan migrate --seed
 php artisan serve --port=8010
 ```
 
-Login de admin de desarrollo: `admin@delivery.local` / `delivery123`
+Login de admin de desarrollo: `gerdclaros@gmail.com` / `delivery123`
 (cambiar antes de cualquier ambiente real).
 
 Para que la sincronización automática corra en local:
