@@ -25,7 +25,12 @@ Detalle completo del diseño y las decisiones en
   mapa de administración en `/mapa` (Leaflet + OpenStreetMap).
 - **POS de retiro en sitio**: pantalla de mostrador (`/pos`) para cuando el
   participante retira su kit en persona el día del evento — cubre a todos
-  los pagados, no solo a quienes pidieron delivery.
+  los pagados, no solo a quienes pidieron delivery. Si el número de
+  corredor/chip todavía no está cargado (el proveedor externo no llegó a
+  tiempo), se puede tipear ahí mismo al confirmar la entrega — se guarda
+  local y se empuja de vuelta a `ApiRestEvent` (best-effort, vía el mismo
+  link firmado por-documento que ya trae cada fila del sync). Si ya venía
+  cargado, se muestra de solo lectura.
 - **Sincronización automática**: `Schedule::command(...)->everyFiveMinutes()`
   (ver `routes/console.php`), más un botón "Sincronizar ahora" para no
   esperar.
@@ -49,8 +54,11 @@ según tu MySQL local.
 
 ```bash
 php artisan migrate --seed
-php artisan serve --port=8010
+php artisan serve --port=8011
 ```
+
+(8010 ya lo usa `admin-eventos` — si corrés los tres sistemas juntos en local,
+`ApiRestEvent` va en 8000, `admin-eventos` en 8010 y `delivery` en 8011.)
 
 Login de admin de desarrollo: `gerdclaros@gmail.com` / `delivery123`
 (cambiar antes de cualquier ambiente real).

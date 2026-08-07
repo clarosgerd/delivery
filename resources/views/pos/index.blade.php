@@ -69,6 +69,20 @@ function render(items) {
             ? `<button onclick="deshacer(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-slate-200 hover:bg-slate-300 text-slate-800">Deshacer</button>`
             : `<button onclick="entregar(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-brand-600 hover:bg-brand-700 text-white">Confirmar entrega</button>`;
 
+        // Numeración: si ya vino cargada (el proveedor llegó a tiempo para
+        // esta persona), se muestra de solo lectura — el proveedor no
+        // llegó a tiempo es la excepción, no el default. Si falta, se
+        // ofrecen inputs para cargarla a mano al momento de entregar.
+        const tieneNumeracion = r.numero_corredor && r.chip;
+        const numeracionHtml = entregado ? '' : (tieneNumeracion
+            ? `<div class="text-sm text-slate-600 mt-2">N° corredor: <strong>${escapeHtml(r.numero_corredor)}</strong> · Chip: <strong>${escapeHtml(r.chip)}</strong></div>`
+            : `<div class="mt-2 flex gap-2">
+                <input type="text" id="numero_corredor-${r.id}" placeholder="N° corredor" value="${escapeHtml(r.numero_corredor || '')}"
+                    class="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm">
+                <input type="text" id="chip-${r.id}" placeholder="Chip" value="${escapeHtml(r.chip || '')}"
+                    class="w-28 border border-slate-300 rounded-md px-2 py-1.5 text-sm">
+               </div>`);
+
         return `
         <div id="retiro-${r.id}" class="border rounded-xl px-5 py-4 flex justify-between items-center gap-3 ${cardClass}">
             <div>
@@ -78,7 +92,9 @@ function render(items) {
                     Talla: ${escapeHtml(r.talla || '—')} ${r.souvenirs ? '· ' + escapeHtml(r.souvenirs) : ''}
                     <br>Ref: ${escapeHtml(r.referencia || '—')}
                     ${entregado ? '<br><strong>Entregado' + (r.entregado_por ? ' por ' + escapeHtml(r.entregado_por) : '') + '</strong>' : ''}
+                    ${entregado && tieneNumeracion ? '<br>N° corredor: <strong>' + escapeHtml(r.numero_corredor) + '</strong> · Chip: <strong>' + escapeHtml(r.chip) + '</strong>' : ''}
                 </div>
+                ${numeracionHtml}
             </div>
             ${btn}
         </div>`;
@@ -86,10 +102,16 @@ function render(items) {
 }
 
 async function entregar(id) {
+    const numeroCorredorEl = document.getElementById(`numero_corredor-${id}`);
+    const chipEl = document.getElementById(`chip-${id}`);
     const res = await fetch(`/pos/retiros/${id}/entregar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
-        body: JSON.stringify({ entregado_por: entregadoPorInput.value || null }),
+        body: JSON.stringify({
+            entregado_por: entregadoPorInput.value || null,
+            numero_corredor: numeroCorredorEl ? (numeroCorredorEl.value || null) : null,
+            chip: chipEl ? (chipEl.value || null) : null,
+        }),
     });
     const data = await res.json();
     if (data.success) buscar();

@@ -60,6 +60,19 @@ class RetiroSyncService
                 'referencia' => $fila['Referencia'] ?? null,
             ]);
 
+            // Numeración de corredor/chip: igual que el estado, solo se toca
+            // localmente si todavía está vacía — si el staff ya la cargó a
+            // mano en el POS (push-back a ApiRestEvent pendiente o fallido),
+            // un re-sync no debe pisarla con un valor vacío. Si el proveedor
+            // externo termina cargándola después, sí entra en el próximo sync.
+            if (empty($retiro->numero_corredor) && filled($fila['NumeroCorredor'] ?? null)) {
+                $retiro->numero_corredor = $fila['NumeroCorredor'];
+            }
+            if (empty($retiro->chip) && filled($fila['Chip'] ?? null)) {
+                $retiro->chip = $fila['Chip'];
+            }
+            $retiro->actualizar_numeracion_url = $fila['ActualizarNumeracionUrl'] ?? $retiro->actualizar_numeracion_url;
+
             $retiro->save();
             $actualizados++;
         }

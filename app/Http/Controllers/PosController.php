@@ -50,8 +50,14 @@ class PosController extends Controller
     {
         $data = $request->validate([
             'entregado_por' => ['nullable', 'string', 'max:255'],
+            'numero_corredor' => ['nullable', 'string', 'max:50'],
+            'chip' => ['nullable', 'string', 'max:50'],
         ]);
 
+        // Numeración cargada en el momento de la entrega (proveedor externo
+        // no llegó a tiempo) — solo asigna lo que todavía esté vacío, ver
+        // RetiroSitio::asignarNumeracion().
+        $retiro->asignarNumeracion($data['numero_corredor'] ?? null, $data['chip'] ?? null);
         $retiro->marcarEntregado($data['entregado_por'] ?? null);
 
         return response()->json(['success' => true, 'retiro' => $retiro->fresh()]);
