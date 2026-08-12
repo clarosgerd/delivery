@@ -24,6 +24,8 @@ class RetiroSitio extends Model
         'telefono',
         'correo',
         'pago_status',
+        'monto',
+        'confirmar_pago_sitio_url',
         'referencia',
         'estado',
         'entregado_at',
@@ -37,7 +39,21 @@ class RetiroSitio extends Model
     {
         return [
             'entregado_at' => 'datetime',
+            'monto' => 'float',
         ];
+    }
+
+    /**
+     * Cobro en sitio (12/08/2026) — ver
+     * ApiRestEvent/brain/api_rest_event/PRD-precios-periodos-fechas.md,
+     * sección 0. `confirmar_pago_sitio_url` solo viene poblado (por el
+     * sync) cuando el form_type es sin categoría y sigue pendiente — si el
+     * dato local quedó desactualizado (ya se pagó por otro canal desde el
+     * último sync), no mostrar el botón igual.
+     */
+    public function pendienteDeCobroEnSitio(): bool
+    {
+        return $this->pago_status !== 'paid' && filled($this->confirmar_pago_sitio_url);
     }
 
     public function marcarEntregado(?string $entregadoPor): void
@@ -102,5 +118,55 @@ class RetiroSitio extends Model
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Cobro en sitio (12/08/2026) — a diferencia de `asignarNumeracion()`,
+     * esto **no** es best-effort: si el push-back a ApiRestEvent falla, NO
+     * se marca `pago_status=paid` acá ni se debe proceder a entregar el
+     * kit — el dinero no quedó registrado como pagado en la fuente de
+     * verdad, y esto es lo único de este proyecto que toca dinero. El
+     * llamador (`PosController`) decide qué hacer con el `false` (mostrar
+     * error, no avanzar a `marcarEntregado()`).
+     *
+     * Idempotente: si ya estaba `paid` localmente, no vuelve a pegarle a
+     * ApiRestEvent.
+     */
+    public function cobrarPagoSitio(): bool
+    {
+        if ($this->pago_status === 'paid') {
+            return true;
+        }
+
+        if (! $this->confirmar_pago_sitio_url) {
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(10)
+                ->withHeaders(['Accept' => 'application/json'])
+                ->get($this->confirmar_pago_sitio_url);
+        } catch (\Throwable $e) {
+            Log::warning('Cobro en sitio: push-back a ApiRestEvent lanzó excepción', [
+                'retiro_id' => $this->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        if (! $response->successful() || ! ($response->json('success') ?? false)) {
+            Log::warning('Cobro en sitio: push-back a ApiRestEvent falló', [
+                'retiro_id' => $this->id,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return false;
+        }
+
+        $this->update(['pago_status' => $response->json('pagoStatus') ?? 'paid']);
+
+        return true;
     }
 }

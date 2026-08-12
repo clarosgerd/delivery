@@ -62,12 +62,21 @@ function render(items) {
     }
     resultadosEl.innerHTML = items.map(r => {
         const entregado = r.estado === 'entregado';
+        // Cobro en sitio (12/08/2026) — ver
+        // ApiRestEvent/brain/api_rest_event/PRD-precios-periodos-fechas.md,
+        // sección 0. `confirmar_pago_sitio_url` solo viene poblado por el
+        // sync para form_types sin categoría pendientes de pago — el resto
+        // de los pendientes (con categoría, o QR en curso) ni siquiera
+        // llega acá, el sync ya los descarta.
+        const pendienteDeCobro = !entregado && r.pago_status !== 'paid' && !!r.confirmar_pago_sitio_url;
         const cardClass = entregado
             ? 'bg-green-50 border-green-200'
-            : 'bg-white border-slate-200';
+            : pendienteDeCobro ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200';
         const btn = entregado
             ? `<button onclick="deshacer(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-slate-200 hover:bg-slate-300 text-slate-800">Deshacer</button>`
-            : `<button onclick="entregar(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-brand-600 hover:bg-brand-700 text-white">Confirmar entrega</button>`;
+            : pendienteDeCobro
+                ? `<button onclick="entregar(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-amber-600 hover:bg-amber-700 text-white">Cobrar Bs ${escapeHtml(r.monto ?? '?')} y confirmar entrega</button>`
+                : `<button onclick="entregar(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-brand-600 hover:bg-brand-700 text-white">Confirmar entrega</button>`;
 
         // Numeración: si ya vino cargada (el proveedor llegó a tiempo para
         // esta persona), se muestra de solo lectura — el proveedor no
@@ -91,6 +100,7 @@ function render(items) {
                     Doc: ${escapeHtml(r.documento || '—')} · Categoría: ${escapeHtml(r.categoria || '—')} ·
                     Talla: ${escapeHtml(r.talla || '—')} ${r.souvenirs ? '· ' + escapeHtml(r.souvenirs) : ''}
                     <br>Ref: ${escapeHtml(r.referencia || '—')}
+                    ${pendienteDeCobro ? '<br><strong class="text-amber-700">Pendiente de pago — Bs ' + escapeHtml(r.monto ?? '?') + '</strong>' : ''}
                     ${entregado ? '<br><strong>Entregado' + (r.entregado_por ? ' por ' + escapeHtml(r.entregado_por) : '') + '</strong>' : ''}
                     ${entregado && tieneNumeracion ? '<br>N° corredor: <strong>' + escapeHtml(r.numero_corredor) + '</strong> · Chip: <strong>' + escapeHtml(r.chip) + '</strong>' : ''}
                 </div>
@@ -114,7 +124,14 @@ async function entregar(id) {
         }),
     });
     const data = await res.json();
-    if (data.success) buscar();
+    if (data.success) {
+        buscar();
+    } else {
+        // Cobro en sitio (12/08/2026): si el push-back de pago falla, el
+        // backend no marca entregado — avisar al staff en vez de fallar
+        // en silencio, para que no piense que ya se entregó.
+        alert(data.error || 'No se pudo confirmar la entrega.');
+    }
 }
 
 async function deshacer(id) {

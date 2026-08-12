@@ -30,7 +30,19 @@ class RetiroSyncService
         $omitidos = [];
 
         foreach ($filas as $fila) {
-            if (($fila['Estado de pago'] ?? null) !== 'paid') {
+            // Cobro en sitio (12/08/2026) — ver
+            // ApiRestEvent/brain/api_rest_event/PRD-precios-periodos-fechas.md,
+            // sección 0. Antes se descartaba cualquier fila que no fuera
+            // 'paid'; ahora también entra una 'pending' si ApiRestEvent la
+            // marcó elegible para cobro en sitio (ConfirmarPagoSitioUrl no
+            // vacío — form_type sin categoría, ver
+            // OrganizadorDashboardController::exportCsv). Cualquier otro
+            // pendiente (con categoría, o QR en curso) se sigue
+            // descartando: este flujo es acotado a propósito, no es "cobro
+            // en efectivo genérico".
+            $confirmarPagoSitioUrl = trim($fila['ConfirmarPagoSitioUrl'] ?? '');
+            $esElegibleCobroSitio = $confirmarPagoSitioUrl !== '';
+            if (($fila['Estado de pago'] ?? null) !== 'paid' && ! $esElegibleCobroSitio) {
                 continue;
             }
 
@@ -47,6 +59,8 @@ class RetiroSyncService
                 'documento' => $documento,
             ]);
 
+            $monto = trim($fila['MontoPendiente'] ?? '');
+
             $retiro->fill([
                 'nombre' => $fila['Nombre'] ?? null,
                 'apellido' => $fila['Apellido'] ?? null,
@@ -56,7 +70,16 @@ class RetiroSyncService
                 'souvenirs' => $fila['Souvenirs'] ?? null,
                 'telefono' => $fila['Teléfono'] ?? null,
                 'correo' => $fila['Correo'] ?? null,
+                // pago_status SÍ se pisa en cada re-sync (a diferencia de
+                // `estado`, que es operativo de este servicio): la fuente
+                // de verdad del pago es siempre ApiRestEvent, nunca algo
+                // que se opere acá — si ya se cobró en sitio en un sync
+                // previo, el próximo sync trae 'paid' desde el CSV real de
+                // todos modos, así que no hay pisada real de nada operado
+                // localmente.
                 'pago_status' => $fila['Estado de pago'] ?? null,
+                'monto' => $monto !== '' ? $monto : null,
+                'confirmar_pago_sitio_url' => $esElegibleCobroSitio ? $confirmarPagoSitioUrl : null,
                 'referencia' => $fila['Referencia'] ?? null,
             ]);
 

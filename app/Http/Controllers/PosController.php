@@ -54,6 +54,23 @@ class PosController extends Controller
             'chip' => ['nullable', 'string', 'max:50'],
         ]);
 
+        // Cobro en sitio (12/08/2026) — ver
+        // ApiRestEvent/brain/api_rest_event/PRD-precios-periodos-fechas.md,
+        // sección 0. Si esta fila sigue pendiente de un form_type sin
+        // categoría, "Confirmar entrega" primero intenta cobrar/confirmar
+        // el pago contra ApiRestEvent — si eso falla, **no se entrega el
+        // kit**: no hay confirmación real de que el dinero quedó
+        // registrado. El staff ve el error y puede reintentar (problema de
+        // red momentáneo) sin haber soltado el kit.
+        if ($retiro->pendienteDeCobroEnSitio()) {
+            if (! $retiro->cobrarPagoSitio()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'No se pudo confirmar el pago contra el sistema de inscripciones. Reintentá — no se entregó el kit.',
+                ], 422);
+            }
+        }
+
         // Numeración cargada en el momento de la entrega (proveedor externo
         // no llegó a tiempo) — solo asigna lo que todavía esté vacío, ver
         // RetiroSitio::asignarNumeracion().
