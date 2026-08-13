@@ -16,7 +16,12 @@
                 <div class="border border-slate-200 rounded-lg p-3 flex justify-between items-center gap-3">
                     <div>
                         <div class="font-semibold">{{ $envio->nombre ?? '—' }}</div>
-                        <div class="text-sm text-slate-600">{{ $envio->direccion ?? '—' }} · {{ $envio->telefono ?? '—' }}</div>
+                        <div class="text-sm text-slate-600">
+                            {{ $envio->direccion ?? '—' }} · {{ $envio->telefono ?? '—' }}
+                            @if ($envio->lat !== null && $envio->lng !== null)
+                                · <a href="https://www.google.com/maps?q={{ $envio->lat }},{{ $envio->lng }}" target="_blank" rel="noopener" class="text-blue-600 underline">Abrir en Maps →</a>
+                            @endif
+                        </div>
                         <div class="text-sm text-slate-600">Kit: {{ $envio->kit ?? '—' }}</div>
                         <x-badge color="amber" class="mt-1">{{ $envio->estado }}</x-badge>
                     </div>

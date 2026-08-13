@@ -20,6 +20,8 @@ class EnvioDelivery extends Model
         'referencia',
         'nombre',
         'direccion',
+        'lat',
+        'lng',
         'telefono',
         'kit',
         'estado',

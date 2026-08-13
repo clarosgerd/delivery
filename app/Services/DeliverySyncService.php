@@ -56,6 +56,10 @@ class DeliverySyncService
                 'referencia' => $item['referencia'] ?? null,
                 'nombre' => trim(($item['nombre'] ?? '').' '.($item['apellido'] ?? '')) ?: null,
                 'direccion' => trim(($item['direccion'] ?? '').($item['ciudad'] ?? '' ? ', '.$item['ciudad'] : '')) ?: null,
+                // Mapa de ubicación (12/08/2026) — pin opcional, ver
+                // ApiRestEvent::DeliveryController::json().
+                'lat' => $item['lat'] ?? null,
+                'lng' => $item['lng'] ?? null,
                 'telefono' => $item['telefono'] ?? null,
                 'kit' => $this->formatearKit($item),
                 'raw' => $item,

@@ -56,7 +56,12 @@ $selectClass = 'border border-slate-300 rounded-md px-2 py-1.5 text-sm';
                     <td class="px-3 py-2">{{ $envio->evento_id }}</td>
                     <td class="px-3 py-2">{{ $envio->participante_id }}</td>
                     <td class="px-3 py-2">{{ $envio->nombre ?? '—' }}</td>
-                    <td class="px-3 py-2">{{ $envio->direccion ?? '—' }}</td>
+                    <td class="px-3 py-2">
+                        {{ $envio->direccion ?? '—' }}
+                        @if ($envio->lat !== null && $envio->lng !== null)
+                            <a href="https://www.google.com/maps?q={{ $envio->lat }},{{ $envio->lng }}" target="_blank" rel="noopener" class="text-blue-600 underline text-xs ml-1">(mapa)</a>
+                        @endif
+                    </td>
                     <td class="px-3 py-2">{{ $envio->telefono ?? '—' }}</td>
                     <td class="px-3 py-2">{{ $envio->kit ?? '—' }}</td>
                     <td class="px-3 py-2">
