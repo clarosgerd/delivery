@@ -1,7 +1,7 @@
 # elascenso/delivery
 
 Servicio Laravel independiente para operar la **entrega de kits** de los
-eventos de [Pass2Go](../event) — envíos a domicilio con repartidores y
+eventos de [Inscrito](../event) — envíos a domicilio con repartidores y
 tracking GPS en vivo, más una pantalla POS para retiro en sitio el día del
 evento. Repo y base de datos propios; no comparte código con `elascenso/event`
 ni con `ApiRestEvent`, y no requiere ningún cambio en ninguno de los dos.
