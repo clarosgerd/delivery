@@ -38,10 +38,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/retiro', [RetiroConfigController::class, 'store'])->name('retiro.store');
     Route::post('/retiro/{eventoRetiroConfig}/sync', [RetiroConfigController::class, 'sync'])->name('retiro.sync');
 
+    // Evento en el path (07/09/2026, pedido del usuario: "diferenciar las
+    // entregas POS en el URL para que no se equivoque el usuario") — antes
+    // el evento se elegía de un <select> en /pos sin ningún rastro en la
+    // URL. {evento:evento_id} bindea EventoRetiroConfig por esa columna,
+    // scoped solo a estas rutas (no tocar getRouteKeyName() global, rompería
+    // la URL de retiro.sync, que bindea por id).
     Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
-    Route::get('/pos/buscar', [PosController::class, 'buscar'])->name('pos.buscar');
-    Route::post('/pos/retiros/{retiro}/entregar', [PosController::class, 'entregar'])->name('pos.entregar');
-    Route::post('/pos/retiros/{retiro}/deshacer', [PosController::class, 'deshacer'])->name('pos.deshacer');
+    Route::get('/pos/{evento:evento_id}', [PosController::class, 'show'])->whereNumber('evento')->name('pos.show');
+    Route::get('/pos/{evento:evento_id}/buscar', [PosController::class, 'buscar'])->whereNumber('evento')->name('pos.buscar');
+    Route::post('/pos/{evento:evento_id}/retiros/{retiro}/entregar', [PosController::class, 'entregar'])->whereNumber('evento')->name('pos.entregar');
+    Route::post('/pos/{evento:evento_id}/retiros/{retiro}/deshacer', [PosController::class, 'deshacer'])->whereNumber('evento')->name('pos.deshacer');
 });
 
 // Acceso del repartidor: token opaco en la URL, sin login (ver

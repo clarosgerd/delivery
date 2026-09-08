@@ -53,7 +53,7 @@
                             @csrf
                             <x-btn type="submit" variant="secondary">Sincronizar ahora</x-btn>
                         </form>
-                        <a class="text-brand-600 hover:underline" href="{{ route('pos.index', ['evento_id' => $evento->evento_id]) }}">Abrir POS</a>
+                        <a class="text-brand-600 hover:underline" href="{{ route('pos.show', $evento) }}">Abrir POS</a>
                     </td>
                 </tr>
             @empty

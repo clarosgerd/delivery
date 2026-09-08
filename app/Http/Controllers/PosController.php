@@ -8,10 +8,38 @@ use Illuminate\Http\Request;
 
 class PosController extends Controller
 {
-    public function index()
+    /**
+     * Picker de evento (07/09/2026) — antes esta acción era la propia
+     * pantalla de POS con un <select> para elegir el evento, sin rastro en
+     * la URL (ver pos.show). Ahora es solo la lista de eventos configurados,
+     * cada uno con su propio link a /pos/{evento}.
+     *
+     * Compat con la forma vieja `/pos?evento_id=X` (que existía como
+     * pre-selección cosmética del <select>, y que retiro/index.blade.php
+     * usaba para el link "Abrir POS") — redirige directo a la pantalla
+     * scoped en vez de mostrar el picker.
+     */
+    public function index(Request $request)
+    {
+        if ($request->filled('evento_id')) {
+            return redirect()->route('pos.show', $request->integer('evento_id'));
+        }
+
+        return view('pos.picker', [
+            'eventos' => EventoRetiroConfig::orderBy('evento_id')->get(),
+        ]);
+    }
+
+    /**
+     * Pantalla de POS para UN evento específico — el evento ya viene
+     * resuelto y confiable desde la URL (route-model-binding, 404
+     * automático si `evento_id` no está configurado), no hay combo para
+     * elegir mal.
+     */
+    public function show(EventoRetiroConfig $evento)
     {
         return view('pos.index', [
-            'eventos' => EventoRetiroConfig::orderBy('evento_id')->get(),
+            'evento' => $evento,
         ]);
     }
 
@@ -23,16 +51,15 @@ class PosController extends Controller
      * traer a varios integrantes de un mismo grupo familiar/equipo de una
      * sola búsqueda.
      */
-    public function buscar(Request $request)
+    public function buscar(Request $request, EventoRetiroConfig $evento)
     {
         $data = $request->validate([
-            'evento_id' => ['required', 'integer'],
             'q' => ['required', 'string', 'min:2'],
         ]);
 
         $q = $data['q'];
 
-        $resultados = RetiroSitio::where('evento_id', $data['evento_id'])
+        $resultados = RetiroSitio::where('evento_id', $evento->evento_id)
             ->where(function ($query) use ($q) {
                 $query->where('documento', 'like', "%{$q}%")
                     ->orWhere('nombre', 'like', "%{$q}%")
@@ -46,8 +73,15 @@ class PosController extends Controller
         return response()->json($resultados);
     }
 
-    public function entregar(Request $request, RetiroSitio $retiro)
+    public function entregar(Request $request, EventoRetiroConfig $evento, RetiroSitio $retiro)
     {
+        // Protección real (07/09/2026) — sin esto, anidar `{evento}` en la
+        // URL es solo cosmético: alguien podría seguir confirmando una
+        // entrega de OTRO evento apuntando a un id de retiro que no le
+        // corresponde. `{evento}` y `{retiro}` bindean de forma
+        // independiente, Laravel no los cruza solo.
+        abort_if($retiro->evento_id !== $evento->evento_id, 404);
+
         $data = $request->validate([
             'entregado_por' => ['nullable', 'string', 'max:255'],
             'numero_corredor' => ['nullable', 'string', 'max:50'],
@@ -80,8 +114,10 @@ class PosController extends Controller
         return response()->json(['success' => true, 'retiro' => $retiro->fresh()]);
     }
 
-    public function deshacer(RetiroSitio $retiro)
+    public function deshacer(EventoRetiroConfig $evento, RetiroSitio $retiro)
     {
+        abort_if($retiro->evento_id !== $evento->evento_id, 404);
+
         $retiro->deshacerEntrega();
 
         return response()->json(['success' => true, 'retiro' => $retiro->fresh()]);

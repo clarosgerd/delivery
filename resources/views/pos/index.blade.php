@@ -5,13 +5,11 @@
 @section('content')
 <div class="max-w-2xl mx-auto">
     <x-card>
-        <label class="block text-sm font-medium mb-1">Evento</label>
-        <select id="evento_id" class="w-full text-lg border border-slate-300 rounded-md px-3 py-2.5">
-            <option value="">— Elegí un evento —</option>
-            @foreach($eventos as $evento)
-                <option value="{{ $evento->evento_id }}">{{ $evento->evento_id }} — {{ $evento->evento_nombre ?? 'sin nombre' }}</option>
-            @endforeach
-        </select>
+        <div class="flex justify-between items-center mb-1">
+            <label class="block text-sm font-medium">Evento</label>
+            <a href="{{ route('pos.index') }}" class="text-xs text-brand-600 hover:underline">‹ Cambiar evento</a>
+        </div>
+        <div class="text-lg font-semibold">{{ $evento->evento_id }} — {{ $evento->evento_nombre ?? 'sin nombre' }}</div>
         <label class="block text-sm font-medium mt-3 mb-1">Nombre de quien entrega (queda en el registro, opcional)</label>
         <input type="text" id="entregado_por" class="w-full border border-slate-300 rounded-md px-3 py-2">
     </x-card>
@@ -24,14 +22,12 @@
 </div>
 
 <script>
-const eventoSelect = document.getElementById('evento_id');
+const eventoId = {{ $evento->evento_id }};
 const qInput = document.getElementById('q');
 const entregadoPorInput = document.getElementById('entregado_por');
 const resultadosEl = document.getElementById('resultados');
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
-const params = new URLSearchParams(location.search);
-if (params.get('evento_id')) eventoSelect.value = params.get('evento_id');
 entregadoPorInput.value = localStorage.getItem('pos_entregado_por') || '';
 entregadoPorInput.addEventListener('input', () => localStorage.setItem('pos_entregado_por', entregadoPorInput.value));
 
@@ -40,16 +36,14 @@ qInput.addEventListener('input', () => {
     clearTimeout(timer);
     timer = setTimeout(buscar, 300);
 });
-eventoSelect.addEventListener('change', buscar);
 
 async function buscar() {
-    const eventoId = eventoSelect.value;
     const q = qInput.value.trim();
-    if (!eventoId || q.length < 2) {
+    if (q.length < 2) {
         resultadosEl.innerHTML = '';
         return;
     }
-    const url = `{{ route('pos.buscar') }}?evento_id=${encodeURIComponent(eventoId)}&q=${encodeURIComponent(q)}`;
+    const url = `{{ route('pos.buscar', $evento) }}?q=${encodeURIComponent(q)}`;
     const res = await fetch(url);
     const items = await res.json();
     render(items);
@@ -114,7 +108,7 @@ function render(items) {
 async function entregar(id) {
     const numeroCorredorEl = document.getElementById(`numero_corredor-${id}`);
     const chipEl = document.getElementById(`chip-${id}`);
-    const res = await fetch(`/pos/retiros/${id}/entregar`, {
+    const res = await fetch(`/pos/${eventoId}/retiros/${id}/entregar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
         body: JSON.stringify({
@@ -135,7 +129,7 @@ async function entregar(id) {
 }
 
 async function deshacer(id) {
-    const res = await fetch(`/pos/retiros/${id}/deshacer`, {
+    const res = await fetch(`/pos/${eventoId}/retiros/${id}/deshacer`, {
         method: 'POST',
         headers: { 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
     });
@@ -147,6 +141,5 @@ function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-if (eventoSelect.value) buscar();
 </script>
 @endsection
