@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\RepartidorController;
+use App\Http\Controllers\ReporteRetiroController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('dashboard'));
@@ -56,3 +57,16 @@ Route::middleware('auth')->group(function () {
 Route::get('/repartidor/{token}', [RepartidorController::class, 'show'])->name('repartidor.show');
 Route::post('/repartidor/{token}/ubicacion', [RepartidorController::class, 'ubicacion'])->name('repartidor.ubicacion');
 Route::post('/repartidor/{token}/envios/{envio}/entregar', [RepartidorController::class, 'marcarEntregado'])->name('repartidor.entregar');
+
+// Reporte de entregas en sitio para el organizador (23/09/2026) — link
+// firmado nativo de Laravel, sin login, mismo criterio que el resto de
+// reportes para organizadores en el ecosistema (a diferencia del token
+// opaco de repartidor arriba, que es para una persona identificada de
+// forma persistente, no un link de reporte puntual). Sin middleware
+// `signed` genérico a propósito — ambas rutas aceptan `?estado=` como
+// filtro ignorable en la firma (ver DeliveryController::exportCsv() en
+// ApiRestEvent, mismo patrón), y ese middleware valida la firma completa
+// sin ignorar nada; el chequeo real vive en ReporteRetiroController vía
+// `hasValidSignatureWhileIgnoring(['estado'])`.
+Route::get('/retiro/{evento:evento_id}/reporte', [ReporteRetiroController::class, 'show'])->whereNumber('evento')->name('retiro.reporte');
+Route::get('/retiro/{evento:evento_id}/reporte.csv', [ReporteRetiroController::class, 'exportCsv'])->whereNumber('evento')->name('retiro.reporte.csv');

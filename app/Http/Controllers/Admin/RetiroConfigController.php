@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\EventoRetiroConfig;
 use App\Services\RetiroSyncService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\URL;
 
 class RetiroConfigController extends Controller
 {
@@ -15,7 +16,16 @@ class RetiroConfigController extends Controller
 
     public function index()
     {
-        return view('retiro.index', ['eventos' => EventoRetiroConfig::orderByDesc('id')->get()]);
+        return view('retiro.index', [
+            'eventos' => EventoRetiroConfig::orderByDesc('id')->get(),
+            // Reporte de entregas en sitio (23/09/2026) — el link firmado se
+            // genera acá (pantalla ya logueada) en vez de por
+            // `retiro:generar-link` por artisan, porque el usuario no tiene
+            // SSH/Terminal en UAT — mismo criterio ya resuelto antes en este
+            // ecosistema para organizador:generar-link/delivery:generar-link
+            // (ver /ops/enlaces en ApiRestEvent).
+            'reporteUrlFor' => fn (EventoRetiroConfig $e) => URL::signedRoute('retiro.reporte', ['evento' => $e->evento_id]),
+        ]);
     }
 
     public function store(Request $request)

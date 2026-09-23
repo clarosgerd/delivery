@@ -54,6 +54,7 @@
                             <x-btn type="submit" variant="secondary">Sincronizar ahora</x-btn>
                         </form>
                         <a class="text-brand-600 hover:underline" href="{{ route('pos.show', $evento) }}">Abrir POS</a>
+                        <a class="text-brand-600 hover:underline" href="{{ $reporteUrlFor($evento) }}" target="_blank">Ver reporte de entregas ↗</a>
                     </td>
                 </tr>
             @empty
