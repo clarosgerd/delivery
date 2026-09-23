@@ -23,6 +23,17 @@
 
 <script>
 const eventoId = {{ $evento->evento_id }};
+// Bug real (23/09/2026) — las URLs de entregar/deshacer estaban
+// hardcodeadas como ruta absoluta (`/pos/${eventoId}/...`), que el
+// navegador resuelve contra la RAÍZ del dominio. Como esta app vive en una
+// subcarpeta (ej. www.inscrito.net/delivery/public/...), esa ruta
+// terminaba pegándole a www.inscrito.net/pos/... directo (sin el prefijo
+// de la subcarpeta) — 404 real. `route()` ya arma la URL completa
+// correcta (mismo patrón que ya usaba `buscar()` más abajo, que nunca
+// tuvo este problema) — se arma acá con un placeholder para el id de
+// retiro, que se reemplaza en JS.
+const entregarUrlTemplate = @json(route('pos.entregar', [$evento, '__RETIRO__']));
+const deshacerUrlTemplate = @json(route('pos.deshacer', [$evento, '__RETIRO__']));
 // Numeración/chip solo aplica a carreras, no a congresos (16/09/2026) —
 // ver OrganizadorDashboardController::exportCsv (ApiRestEvent) y
 // RetiroSyncService::sincronizar(). Default true en la BD, así que un
@@ -195,7 +206,7 @@ async function entregar(id) {
     const item = itemsPorId[id] || {};
     const numeroCorredor = numeroCorredorEl ? (numeroCorredorEl.value || null) : (item.numero_corredor || null);
     const chip = chipEl ? (chipEl.value || null) : (item.chip || null);
-    const res = await fetch(`/pos/${eventoId}/retiros/${id}/entregar`, {
+    const res = await fetch(entregarUrlTemplate.replace('__RETIRO__', id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
         body: JSON.stringify({
@@ -216,7 +227,7 @@ async function entregar(id) {
 }
 
 async function deshacer(id) {
-    const res = await fetch(`/pos/${eventoId}/retiros/${id}/deshacer`, {
+    const res = await fetch(deshacerUrlTemplate.replace('__RETIRO__', id), {
         method: 'POST',
         headers: { 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
     });
