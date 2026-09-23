@@ -59,12 +59,20 @@ class PosController extends Controller
 
         $q = $data['q'];
 
+        // Buscar por categoría/curso (16/09/2026) — antes solo buscaba por
+        // documento/nombre/apellido/referencia. Sin esto, el staff no podía
+        // encontrar a nadie escribiendo el nombre de su categoría o curso
+        // (ej. "URIANÁLISIS" en un congreso con cursos pre-congreso, o
+        // "15K" en una carrera) — no es algo específico de congresos, es
+        // un gap general del buscador.
         $resultados = RetiroSitio::where('evento_id', $evento->evento_id)
             ->where(function ($query) use ($q) {
                 $query->where('documento', 'like', "%{$q}%")
                     ->orWhere('nombre', 'like', "%{$q}%")
                     ->orWhere('apellido', 'like', "%{$q}%")
-                    ->orWhere('referencia', 'like', "%{$q}%");
+                    ->orWhere('referencia', 'like', "%{$q}%")
+                    ->orWhere('categoria', 'like', "%{$q}%")
+                    ->orWhere('nombre_curso', 'like', "%{$q}%");
             })
             ->orderBy('apellido')
             ->limit(20)

@@ -12,6 +12,7 @@ class EventoRetiroConfig extends Model
         'evento_id',
         'evento_nombre',
         'csv_url',
+        'usa_numeracion',
         'last_synced_at',
     ];
 
@@ -19,6 +20,7 @@ class EventoRetiroConfig extends Model
     {
         return [
             'last_synced_at' => 'datetime',
+            'usa_numeracion' => 'boolean',
         ];
     }
 }

@@ -33,6 +33,14 @@ class RetiroSitio extends Model
         'numero_corredor',
         'chip',
         'actualizar_numeracion_url',
+        'genero',
+        'fecha_nacimiento',
+        'edad_calculada',
+        'alerta_numeracion',
+        'nombre_curso',
+        'id_curso',
+        'categoria_recalculada',
+        'categoria_recalculada_color',
     ];
 
     protected function casts(): array
@@ -40,6 +48,7 @@ class RetiroSitio extends Model
         return [
             'entregado_at' => 'datetime',
             'monto' => 'float',
+            'fecha_nacimiento' => 'date',
         ];
     }
 
@@ -72,30 +81,40 @@ class RetiroSitio extends Model
 
     /**
      * Carga número de corredor/chip al momento de la entrega en el POS,
-     * para cuando el proveedor externo de numeración no llegó a tiempo.
-     * Solo asigna lo que todavía esté vacío — si ya tenía un valor cargado
-     * (el proveedor sí llegó a tiempo para esta persona), no se toca.
-     * Empuja el cambio de vuelta a ApiRestEvent vía `actualizar_numeracion_url`
-     * (link firmado entregado en el sync) igual que
-     * EnvioDelivery::avanzarEstado() — best-effort, si falla no bloquea la
-     * asignación local, solo queda logueado.
+     * para cuando el proveedor externo de numeración no llegó a tiempo, o
+     * para corregirlo cuando el aviso de numeración (ver
+     * NumeracionRangoChecker en ApiRestEvent) marcó que el que trajo el
+     * proveedor no corresponde a su género/edad real (16/09/2026) — antes
+     * de esto, un valor ya cargado nunca se tocaba; ahora se pisa cuando el
+     * valor que llega es distinto del actual.
+     *
+     * A diferencia de la primera versión (que solo pegaba a ApiRestEvent
+     * si el número/chip cambió), ahora SIEMPRE se consulta
+     * `actualizar_numeracion_url` cuando hay algún número vigente (el que
+     * ya tenía o el que se acaba de asignar) — para que `alerta_numeracion`
+     * quede al día en el momento mismo de "Confirmar entrega", no recién
+     * en el próximo sync del CSV completo (pedido explícito del usuario:
+     * el aviso tiene que verse en el momento, no una sincronización
+     * después). Empuja/consulta vía el link firmado entregado en el sync,
+     * igual que EnvioDelivery::avanzarEstado() — best-effort: si falla, no
+     * bloquea la asignación/entrega local, solo queda logueado y
+     * `alerta_numeracion` conserva el último valor conocido.
      */
     public function asignarNumeracion(?string $numeroCorredor, ?string $chip): void
     {
         $cambios = [];
-        if (empty($this->numero_corredor) && filled($numeroCorredor)) {
+        if (filled($numeroCorredor) && $numeroCorredor !== $this->numero_corredor) {
             $cambios['numero_corredor'] = $numeroCorredor;
         }
-        if (empty($this->chip) && filled($chip)) {
+        if (filled($chip) && $chip !== $this->chip) {
             $cambios['chip'] = $chip;
         }
-        if (!$cambios) {
-            return;
+        if ($cambios) {
+            $this->update($cambios);
         }
 
-        $this->update($cambios);
-
-        if (! $this->actualizar_numeracion_url) {
+        $numeroVigente = $numeroCorredor ?? $this->numero_corredor;
+        if (! $this->actualizar_numeracion_url || empty($numeroVigente)) {
             return;
         }
 
@@ -104,9 +123,12 @@ class RetiroSitio extends Model
             $query = http_build_query($cambios);
             $response = Http::timeout(10)
                 ->withHeaders(['Accept' => 'application/json'])
-                ->get($this->actualizar_numeracion_url.$separator.$query);
+                ->get($this->actualizar_numeracion_url.($query !== '' ? $separator.$query : ''));
 
-            if (! $response->successful()) {
+            if ($response->successful()) {
+                $alerta = $response->json('alertaNumeracion');
+                $this->update(['alerta_numeracion' => filled($alerta) ? $alerta : null]);
+            } else {
                 Log::warning('Push-back de numeración a ApiRestEvent falló', [
                     'retiro_id' => $this->id,
                     'status' => $response->status(),
