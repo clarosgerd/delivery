@@ -26,6 +26,21 @@
         </x-card>
     </div>
 
+    <form method="GET" action="{{ request()->url() }}" class="mb-3">
+        <input type="hidden" name="signature" value="{{ request()->query('signature') }}">
+        @if ($estadoSeleccionado !== '')
+            <input type="hidden" name="estado" value="{{ $estadoSeleccionado }}">
+        @endif
+        <div class="flex gap-2">
+            <input type="text" name="q" value="{{ $qSeleccionado }}" placeholder="Buscar por número, chip, nombre o CI..."
+                   class="flex-1 border border-slate-300 rounded-md px-3 py-2 text-sm">
+            <button type="submit" class="px-4 py-2 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold">Buscar</button>
+            @if ($qSeleccionado !== '')
+                <a href="{{ request()->fullUrlWithQuery(['q' => null]) }}" class="px-3 py-2 rounded-md bg-white border border-slate-300 text-sm">Limpiar</a>
+            @endif
+        </div>
+    </form>
+
     <div class="flex gap-2 mb-3 text-sm">
         <a href="{{ request()->fullUrlWithQuery(['estado' => null]) }}"
            class="px-3 py-1.5 rounded-md {{ $estadoSeleccionado === '' ? 'bg-brand-600 text-white' : 'bg-white border border-slate-300' }}">Todos</a>
@@ -43,6 +58,8 @@
                 <tr>
                     <th class="px-3 py-2">Nombre</th>
                     <th class="px-3 py-2">Documento</th>
+                    <th class="px-3 py-2">N° corredor</th>
+                    <th class="px-3 py-2">Chip</th>
                     <th class="px-3 py-2">Categoría</th>
                     <th class="px-3 py-2">Estado</th>
                     <th class="px-3 py-2">Entregado por</th>
@@ -54,6 +71,8 @@
                     <tr class="border-t border-slate-100">
                         <td class="px-3 py-2">{{ $r->nombre }} {{ $r->apellido }}</td>
                         <td class="px-3 py-2">{{ $r->documento }}</td>
+                        <td class="px-3 py-2">{{ $r->numero_corredor ?? '—' }}</td>
+                        <td class="px-3 py-2">{{ $r->chip ?? '—' }}</td>
                         <td class="px-3 py-2">{{ $r->categoria }}</td>
                         <td class="px-3 py-2">
                             @if ($r->estado === 'entregado')
@@ -66,7 +85,7 @@
                         <td class="px-3 py-2">{{ $r->entregado_at?->format('d/m/Y H:i') ?? '—' }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Sin participantes para este filtro.</td></tr>
+                    <tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">Sin participantes para este filtro.</td></tr>
                 @endforelse
             </tbody>
         </table>

@@ -87,6 +87,7 @@ class ReporteRetiroControllerTest extends TestCase
         $this->crearEvento();
         $this->crearRetiro(90020, 'entregado', [
             'nombre' => 'Ana', 'apellido' => 'Gomez', 'documento' => '12345',
+            'numero_corredor' => '101', 'chip' => 'CHIP101',
             'entregado_por' => 'Staff 1', 'entregado_at' => now(),
         ]);
 
@@ -94,7 +95,61 @@ class ReporteRetiroControllerTest extends TestCase
         $csv = str_replace("\xEF\xBB\xBF", '', $this->get($url)->assertOk()->getContent());
         $header = str_getcsv(explode("\n", trim($csv))[0]);
 
-        $this->assertSame(['Nombre', 'Apellido', 'Documento', 'Categoría', 'Estado', 'Entregado por', 'Entregado el'], $header);
-        $this->assertStringContainsString('Ana,Gomez,12345', $csv);
+        $this->assertSame(['Nombre', 'Apellido', 'Documento', 'N° corredor', 'Chip', 'Categoría', 'Estado', 'Entregado por', 'Entregado el'], $header);
+        $this->assertStringContainsString('Ana,Gomez,12345,101,CHIP101', $csv);
+    }
+
+    /**
+     * Buscador por número/chip/nombre/CI (23/09/2026) — pedido del usuario.
+     */
+    public function test_buscador_por_numero_corredor(): void
+    {
+        $this->crearEvento();
+        $this->crearRetiro(90020, 'pendiente', ['nombre' => 'Carlos', 'apellido' => 'Conbib', 'numero_corredor' => '1234']);
+        $this->crearRetiro(90020, 'pendiente', ['nombre' => 'Maria', 'apellido' => 'Sinbib', 'numero_corredor' => '5678']);
+
+        $url = URL::signedRoute('retiro.reporte', ['evento' => 90020]);
+        $response = $this->get($url . '&q=1234')->assertOk();
+
+        $response->assertSeeText('Carlos');
+        $response->assertDontSeeText('Maria');
+    }
+
+    public function test_buscador_por_chip(): void
+    {
+        $this->crearEvento();
+        $this->crearRetiro(90020, 'pendiente', ['nombre' => 'Carlos', 'apellido' => 'Conchip', 'chip' => 'CHIP-999']);
+        $this->crearRetiro(90020, 'pendiente', ['nombre' => 'Maria', 'apellido' => 'Sinchip', 'chip' => 'CHIP-111']);
+
+        $url = URL::signedRoute('retiro.reporte', ['evento' => 90020]);
+        $response = $this->get($url . '&q=CHIP-999')->assertOk();
+
+        $response->assertSeeText('Carlos');
+        $response->assertDontSeeText('Maria');
+    }
+
+    public function test_buscador_por_nombre_y_documento(): void
+    {
+        $this->crearEvento();
+        $this->crearRetiro(90020, 'pendiente', ['nombre' => 'Carlos', 'apellido' => 'Fernandez', 'documento' => '9019450']);
+        $this->crearRetiro(90020, 'pendiente', ['nombre' => 'Maria', 'apellido' => 'Lopez', 'documento' => '1112223']);
+
+        $url = URL::signedRoute('retiro.reporte', ['evento' => 90020]);
+
+        $this->get($url . '&q=Fernandez')->assertOk()->assertSeeText('Carlos')->assertDontSeeText('Maria');
+        $this->get($url . '&q=9019450')->assertOk()->assertSeeText('Carlos')->assertDontSeeText('Maria');
+    }
+
+    public function test_buscador_se_combina_con_filtro_de_estado(): void
+    {
+        $this->crearEvento();
+        $this->crearRetiro(90020, 'entregado', ['nombre' => 'Carlos', 'apellido' => 'Entregado', 'numero_corredor' => '1234']);
+        $this->crearRetiro(90020, 'pendiente', ['nombre' => 'Carla', 'apellido' => 'Pendiente', 'numero_corredor' => '1234']);
+
+        $url = URL::signedRoute('retiro.reporte', ['evento' => 90020]);
+        $response = $this->get($url . '&q=1234&estado=entregado')->assertOk();
+
+        $response->assertSeeText('Carlos');
+        $response->assertDontSeeText('Carla');
     }
 }

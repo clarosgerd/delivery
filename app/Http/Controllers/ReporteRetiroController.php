@@ -22,11 +22,12 @@ class ReporteRetiroController extends Controller
 {
     public function show(Request $request, EventoRetiroConfig $evento)
     {
-        [$estado, $retiros] = $this->filtrar($request, $evento);
+        [$estado, $q, $retiros] = $this->filtrar($request, $evento);
 
         return view('reporte.retiro', [
             'evento' => $evento,
             'estadoSeleccionado' => $estado,
+            'qSeleccionado' => $q,
             'retiros' => $retiros,
             'resumen' => $this->resumen($evento),
             // Link con su propia firma — no se puede armar reemplazando texto
@@ -34,29 +35,32 @@ class ReporteRetiroController extends Controller
             'csvUrl' => URL::signedRoute('retiro.reporte.csv', array_filter([
                 'evento' => $evento->evento_id,
                 'estado' => $estado !== '' ? $estado : null,
+                'q' => $q !== '' ? $q : null,
             ])),
         ]);
     }
 
     /**
-     * Firma cubre solo `evento` — `estado` viaja sin firmar, mismo patrón
-     * "ignorar filtros" que ya usa DeliveryController::exportCsv() en
-     * ApiRestEvent.
+     * Firma cubre solo `evento` — `estado`/`q` viajan sin firmar, mismo
+     * patrón "ignorar filtros" que ya usa DeliveryController::exportCsv()
+     * en ApiRestEvent.
      */
     public function exportCsv(Request $request, EventoRetiroConfig $evento): Response
     {
-        abort_unless($request->hasValidSignatureWhileIgnoring(['estado']), 403);
+        abort_unless($request->hasValidSignatureWhileIgnoring(['estado', 'q']), 403);
 
-        [, $retiros] = $this->filtrar($request, $evento, saltarFirma: true);
+        [, , $retiros] = $this->filtrar($request, $evento, saltarFirma: true);
 
         $handle = fopen('php://temp', 'w+');
         fwrite($handle, "\xEF\xBB\xBF");
-        fputcsv($handle, ['Nombre', 'Apellido', 'Documento', 'Categoría', 'Estado', 'Entregado por', 'Entregado el']);
+        fputcsv($handle, ['Nombre', 'Apellido', 'Documento', 'N° corredor', 'Chip', 'Categoría', 'Estado', 'Entregado por', 'Entregado el']);
         foreach ($retiros as $r) {
             fputcsv($handle, [
                 $r->nombre,
                 $r->apellido,
                 $r->documento,
+                $r->numero_corredor,
+                $r->chip,
                 $r->categoria,
                 $r->estado,
                 $r->entregado_por,
@@ -74,23 +78,38 @@ class ReporteRetiroController extends Controller
     }
 
     /**
-     * @return array{0: string, 1: \Illuminate\Database\Eloquent\Collection<int, RetiroSitio>}
+     * @return array{0: string, 1: string, 2: \Illuminate\Database\Eloquent\Collection<int, RetiroSitio>}
      */
     private function filtrar(Request $request, EventoRetiroConfig $evento, bool $saltarFirma = false): array
     {
         if (! $saltarFirma) {
-            abort_unless($request->hasValidSignatureWhileIgnoring(['estado']), 403);
+            abort_unless($request->hasValidSignatureWhileIgnoring(['estado', 'q']), 403);
         }
 
         $estado = $request->query('estado', '');
         $estado = in_array($estado, RetiroSitio::ESTADOS, true) ? $estado : '';
 
+        $q = trim((string) $request->query('q', ''));
+
         $query = RetiroSitio::where('evento_id', $evento->evento_id);
         if ($estado !== '') {
             $query->where('estado', $estado);
         }
+        // Buscador por número/chip/nombre/CI (23/09/2026) — pedido del
+        // usuario para encontrar rápido a alguien puntual dentro del
+        // reporte, mismo criterio "un solo campo, varias columnas" que ya
+        // usa PosController::buscar().
+        if ($q !== '') {
+            $query->where(function ($sub) use ($q) {
+                $sub->where('documento', 'like', "%{$q}%")
+                    ->orWhere('nombre', 'like', "%{$q}%")
+                    ->orWhere('apellido', 'like', "%{$q}%")
+                    ->orWhere('numero_corredor', 'like', "%{$q}%")
+                    ->orWhere('chip', 'like', "%{$q}%");
+            });
+        }
 
-        return [$estado, $query->orderBy('apellido')->get()];
+        return [$estado, $q, $query->orderBy('apellido')->get()];
     }
 
     private function resumen(EventoRetiroConfig $evento): array
