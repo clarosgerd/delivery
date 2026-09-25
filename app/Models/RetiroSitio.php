@@ -65,6 +65,37 @@ class RetiroSitio extends Model
         return $this->pago_status !== 'paid' && filled($this->confirmar_pago_sitio_url);
     }
 
+    /**
+     * Control de duplicados (24/09/2026) — evita confirmar la entrega de un
+     * kit con el mismo `numero_corredor`/`chip` que ya fue entregado
+     * FÍSICAMENTE a otro participante del mismo evento (dos personas con el
+     * "mismo" kit numerado). Acotado a propósito: solo compara contra otros
+     * `retiros_sitio` ya `entregado` — un duplicado entre 2 pendientes no
+     * bloquea (puede corregirse antes de entregar cualquiera de los 2, ver
+     * decisión del usuario en el plan). No es una unicidad de BD (no hay
+     * índice `unique`), es una regla de negocio puntual al momento de
+     * entregar.
+     */
+    public static function conflictoEntregado(int $eventoId, int $exceptId, ?string $numeroCorredor, ?string $chip): ?self
+    {
+        if (blank($numeroCorredor) && blank($chip)) {
+            return null;
+        }
+
+        return static::where('evento_id', $eventoId)
+            ->where('id', '!=', $exceptId)
+            ->where('estado', 'entregado')
+            ->where(function ($q) use ($numeroCorredor, $chip) {
+                if (filled($numeroCorredor)) {
+                    $q->orWhere('numero_corredor', $numeroCorredor);
+                }
+                if (filled($chip)) {
+                    $q->orWhere('chip', $chip);
+                }
+            })
+            ->first();
+    }
+
     public function marcarEntregado(?string $entregadoPor): void
     {
         $this->update([

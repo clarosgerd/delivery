@@ -96,6 +96,25 @@ class PosController extends Controller
             'chip' => ['nullable', 'string', 'max:50'],
         ]);
 
+        // Control de duplicados (24/09/2026) — antes que cualquier efecto
+        // secundario (cobro, asignación, marcar entregado): no confirmar la
+        // entrega si el número/chip que se está por asignar ya fue
+        // entregado a OTRO participante de este evento. Ver
+        // RetiroSitio::conflictoEntregado() — acotado a solo contra
+        // `entregado`, un duplicado entre 2 pendientes no bloquea.
+        $conflicto = RetiroSitio::conflictoEntregado(
+            $evento->evento_id, $retiro->id, $data['numero_corredor'] ?? null, $data['chip'] ?? null
+        );
+        if ($conflicto) {
+            $campo = filled($data['numero_corredor'] ?? null) && $conflicto->numero_corredor === $data['numero_corredor']
+                ? 'número'
+                : 'chip';
+            return response()->json([
+                'success' => false,
+                'error' => "Ese {$campo} ya fue entregado a {$conflicto->nombre} {$conflicto->apellido} (doc. {$conflicto->documento}) — no se entregó el kit.",
+            ], 422);
+        }
+
         // Cobro en sitio (12/08/2026) — ver
         // ApiRestEvent/brain/api_rest_event/PRD-precios-periodos-fechas.md,
         // sección 0. Si esta fila sigue pendiente de un form_type sin
