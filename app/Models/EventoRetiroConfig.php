@@ -14,6 +14,8 @@ class EventoRetiroConfig extends Model
         'csv_url',
         'usa_numeracion',
         'last_synced_at',
+        // Editar datos del participante desde el POS (28/09/2026).
+        'categorias_catalogo',
     ];
 
     protected function casts(): array
@@ -21,6 +23,7 @@ class EventoRetiroConfig extends Model
         return [
             'last_synced_at' => 'datetime',
             'usa_numeracion' => 'boolean',
+            'categorias_catalogo' => 'array',
         ];
     }
 }

@@ -50,6 +50,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/pos/{evento:evento_id}/buscar', [PosController::class, 'buscar'])->whereNumber('evento')->name('pos.buscar');
     Route::post('/pos/{evento:evento_id}/retiros/{retiro}/entregar', [PosController::class, 'entregar'])->whereNumber('evento')->name('pos.entregar');
     Route::post('/pos/{evento:evento_id}/retiros/{retiro}/deshacer', [PosController::class, 'deshacer'])->whereNumber('evento')->name('pos.deshacer');
+    // Editar datos del participante al momento de la entrega (28/09/2026).
+    Route::post('/pos/{evento:evento_id}/retiros/{retiro}/editar-datos', [PosController::class, 'editarDatos'])->whereNumber('evento')->name('pos.editar-datos');
 });
 
 // Acceso del repartidor: token opaco en la URL, sin login (ver

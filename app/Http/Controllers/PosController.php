@@ -149,4 +149,50 @@ class PosController extends Controller
 
         return response()->json(['success' => true, 'retiro' => $retiro->fresh()]);
     }
+
+    /**
+     * Editar datos del participante al momento de la entrega (28/09/2026) —
+     * nombre/apellido/genero/fecha_nacimiento libres; categoria_id solo si
+     * ApiRestEvent confirma que el precio no cambia (si no, responde 422 con
+     * "debe pasar por Caja", que se muestra tal cual en el popup). Disponible
+     * tanto en pendiente como en entregado — corregir un dato después de la
+     * entrega es un caso real (el staff lo nota recién al imprimir un
+     * gafete).
+     */
+    public function editarDatos(Request $request, EventoRetiroConfig $evento, RetiroSitio $retiro)
+    {
+        abort_if($retiro->evento_id !== $evento->evento_id, 404);
+
+        $data = $request->validate([
+            'nombre' => ['sometimes', 'string', 'max:255'],
+            'apellido' => ['sometimes', 'string', 'max:255'],
+            'genero' => ['sometimes', 'string', 'max:50'],
+            'fecha_nacimiento' => ['sometimes', 'date'],
+            'categoria_id' => ['sometimes', 'integer'],
+        ]);
+
+        if (! $data) {
+            return response()->json(['success' => false, 'error' => 'No hay ningún cambio para guardar.'], 422);
+        }
+
+        $resultado = $retiro->editarDatos($data);
+
+        if (! $resultado['success']) {
+            return response()->json(['success' => false, 'error' => $resultado['error']], 422);
+        }
+
+        // El push-back solo devuelve categoriaId (ApiRestEvent no resuelve
+        // nombres) — se completa acá con el catálogo ya sincronizado, para
+        // que la tarjeta no quede con el nombre viejo hasta el próximo sync.
+        if (array_key_exists('categoria_id', $data)) {
+            $nombre = collect($evento->categorias_catalogo ?? [])
+                ->flatten(1)
+                ->firstWhere('id', $retiro->fresh()->categoria_id)['name'] ?? null;
+            if ($nombre) {
+                $retiro->update(['categoria' => $nombre]);
+            }
+        }
+
+        return response()->json(['success' => true, 'retiro' => $retiro->fresh()]);
+    }
 }

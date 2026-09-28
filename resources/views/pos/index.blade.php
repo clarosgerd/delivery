@@ -21,6 +21,48 @@
     </x-card>
 </div>
 
+{{-- Editar datos del participante al momento de la entrega (28/09/2026) —
+     nombre/apellido/género/fecha de nacimiento libres; categoría solo si
+     ApiRestEvent confirma que el precio no cambia (si no, el mensaje de
+     "debe pasar por Caja" se muestra acá mismo, sin cerrar el popup). --}}
+<dialog id="editarDatosModal" class="rounded-xl p-0 w-full max-w-md backdrop:bg-black/40">
+    <form method="dialog" class="p-5" onsubmit="return false;">
+        <h2 class="text-lg font-semibold mb-3">Editar datos</h2>
+        <div class="space-y-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Nombre</label>
+                <input type="text" id="ed_nombre" class="w-full border border-slate-300 rounded-md px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Apellido</label>
+                <input type="text" id="ed_apellido" class="w-full border border-slate-300 rounded-md px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Sexo</label>
+                <select id="ed_genero" class="w-full border border-slate-300 rounded-md px-3 py-2">
+                    <option value="Masculino">Masculino</option>
+                    <option value="Femenino">Femenino</option>
+                    <option value="Otro">Otro</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Fecha de nacimiento</label>
+                <input type="date" id="ed_fecha_nacimiento" class="w-full border border-slate-300 rounded-md px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Categoría</label>
+                <select id="ed_categoria" class="w-full border border-slate-300 rounded-md px-3 py-2"></select>
+                <p id="ed_categoria_nota" class="text-xs text-slate-500 mt-1"></p>
+            </div>
+        </div>
+        <p id="ed_error" class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2 mt-3" hidden></p>
+        <div class="flex justify-end gap-2 mt-4">
+            <button type="button" onclick="cerrarEditarDatos()" class="px-4 py-2 rounded-md bg-slate-100 hover:bg-slate-200 text-sm">Cancelar</button>
+            <button type="button" id="ed_guardar" onclick="guardarEditarDatos()" class="px-4 py-2 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-sm">Guardar</button>
+        </div>
+    </form>
+</dialog>
+
 <script>
 const eventoId = {{ $evento->evento_id }};
 // Bug real (23/09/2026) — las URLs de entregar/deshacer estaban
@@ -40,6 +82,13 @@ const deshacerUrlTemplate = @json(route('pos.deshacer', [$evento, '__RETIRO__'])
 // evento nunca sincronizado con este cambio sigue mostrando numeración
 // como siempre.
 const usaNumeracion = @json($evento->usa_numeracion);
+// Editar datos del participante al momento de la entrega (28/09/2026) —
+// catálogo de categorías del evento agrupado por nombre de tipo de
+// formulario (ver OrganizadorDashboardController::exportCsv en ApiRestEvent
+// y RetiroSyncService). Puede ser null si el evento todavía no sincronizó
+// con esta versión — el select de categoría se deshabilita en ese caso.
+const catalogoCategorias = @json($evento->categorias_catalogo ?? null);
+const editarDatosUrlTemplate = @json(route('pos.editar-datos', [$evento, '__RETIRO__']));
 const qInput = document.getElementById('q');
 const entregadoPorInput = document.getElementById('entregado_por');
 const resultadosEl = document.getElementById('resultados');
@@ -106,6 +155,9 @@ function render(items) {
             : pendienteDeCobro
                 ? `<button onclick="entregar(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-amber-600 hover:bg-amber-700 text-white">Cobrar Bs ${escapeHtml(r.monto ?? '?')} y confirmar entrega</button>`
                 : `<button onclick="entregar(${r.id})" class="text-lg px-6 py-3.5 rounded-lg whitespace-nowrap bg-brand-600 hover:bg-brand-700 text-white">Confirmar entrega</button>`;
+        // Editar datos (28/09/2026) — disponible en pendiente y en entregado
+        // (corregir un dato después de la entrega es un caso real).
+        const editarBtn = `<button onclick="abrirEditarDatos(${r.id})" class="text-sm px-4 py-2 rounded-lg whitespace-nowrap bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 block mt-2">Editar datos</button>`;
 
         // Numeración: si ya vino cargada (el proveedor llegó a tiempo para
         // esta persona), se muestra de solo lectura — el proveedor no
@@ -190,7 +242,10 @@ function render(items) {
                 </div>
                 ${numeracionHtml}
             </div>
-            ${btn}
+            <div class="flex flex-col items-end">
+                ${btn}
+                ${editarBtn}
+            </div>
         </div>`;
     }).join('');
 }
@@ -233,6 +288,98 @@ async function deshacer(id) {
     });
     const data = await res.json();
     if (data.success) buscar();
+}
+
+// Editar datos del participante al momento de la entrega (28/09/2026) ──────
+let editarDatosRetiroId = null;
+const editarDatosModal = document.getElementById('editarDatosModal');
+
+function abrirEditarDatos(id) {
+    const item = itemsPorId[id];
+    if (!item) return;
+    editarDatosRetiroId = id;
+
+    document.getElementById('ed_nombre').value = item.nombre || '';
+    document.getElementById('ed_apellido').value = item.apellido || '';
+    document.getElementById('ed_genero').value = item.genero || 'Masculino';
+    document.getElementById('ed_fecha_nacimiento').value = (item.fecha_nacimiento || '').slice(0, 10);
+
+    const categoriaSelect = document.getElementById('ed_categoria');
+    const categoriaNota = document.getElementById('ed_categoria_nota');
+    const opciones = catalogoCategorias && item.tipo_formulario ? catalogoCategorias[item.tipo_formulario] : null;
+    if (opciones && opciones.length) {
+        categoriaSelect.innerHTML = opciones.map(o =>
+            `<option value="${o.id}" ${String(o.id) === String(item.categoria_id) ? 'selected' : ''}>${escapeHtml(o.name)}</option>`
+        ).join('');
+        categoriaSelect.disabled = false;
+        categoriaNota.textContent = 'Si el precio de la nueva categoría es distinto, no se aplicará ningún cambio — pasá por Caja.';
+    } else {
+        // Sin catálogo (falta un sync) o sin categorías para este tipo de
+        // formulario — se deja ver la actual, sin poder cambiarla.
+        categoriaSelect.innerHTML = item.categoria ? `<option value="${item.categoria_id || ''}">${escapeHtml(item.categoria)}</option>` : '<option value="">—</option>';
+        categoriaSelect.disabled = true;
+        categoriaNota.textContent = 'No se puede cambiar la categoría todavía (falta sincronizar).';
+    }
+
+    document.getElementById('ed_error').hidden = true;
+    document.getElementById('ed_guardar').disabled = false;
+    editarDatosModal.showModal();
+}
+
+function cerrarEditarDatos() {
+    editarDatosModal.close();
+    editarDatosRetiroId = null;
+}
+
+async function guardarEditarDatos() {
+    if (!editarDatosRetiroId) return;
+    const id = editarDatosRetiroId;
+    const item = itemsPorId[id] || {};
+    const errorEl = document.getElementById('ed_error');
+    const guardarBtn = document.getElementById('ed_guardar');
+    errorEl.hidden = true;
+
+    const nombre = document.getElementById('ed_nombre').value.trim();
+    const apellido = document.getElementById('ed_apellido').value.trim();
+    const genero = document.getElementById('ed_genero').value;
+    const fechaNacimiento = document.getElementById('ed_fecha_nacimiento').value;
+    const categoriaSelect = document.getElementById('ed_categoria');
+    const categoriaId = categoriaSelect.disabled ? null : categoriaSelect.value;
+
+    // Solo se manda lo que realmente cambió.
+    const cambios = {};
+    if (nombre && nombre !== (item.nombre || '')) cambios.nombre = nombre;
+    if (apellido && apellido !== (item.apellido || '')) cambios.apellido = apellido;
+    if (genero && genero !== (item.genero || '')) cambios.genero = genero;
+    if (fechaNacimiento && fechaNacimiento !== (item.fecha_nacimiento || '').slice(0, 10)) cambios.fecha_nacimiento = fechaNacimiento;
+    if (categoriaId && String(categoriaId) !== String(item.categoria_id || '')) cambios.categoria_id = categoriaId;
+
+    if (!Object.keys(cambios).length) {
+        cerrarEditarDatos();
+        return;
+    }
+
+    guardarBtn.disabled = true;
+    try {
+        const res = await fetch(editarDatosUrlTemplate.replace('__RETIRO__', id), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+            body: JSON.stringify(cambios),
+        });
+        const data = await res.json();
+        if (data.success) {
+            cerrarEditarDatos();
+            buscar();
+        } else {
+            errorEl.textContent = data.error || 'No se pudo guardar el cambio.';
+            errorEl.hidden = false;
+        }
+    } catch (e) {
+        errorEl.textContent = 'No se pudo conectar. Reintentá.';
+        errorEl.hidden = false;
+    } finally {
+        guardarBtn.disabled = false;
+    }
 }
 
 function escapeHtml(s) {

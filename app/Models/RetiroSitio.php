@@ -41,6 +41,9 @@ class RetiroSitio extends Model
         'id_curso',
         'categoria_recalculada',
         'categoria_recalculada_color',
+        // Editar datos del participante desde el POS (28/09/2026).
+        'categoria_id',
+        'editar_datos_url',
     ];
 
     protected function casts(): array
@@ -221,5 +224,75 @@ class RetiroSitio extends Model
         $this->update(['pago_status' => $response->json('pagoStatus') ?? 'paid']);
 
         return true;
+    }
+
+    /**
+     * Editar datos del participante desde el POS de retiro en sitio
+     * (28/09/2026) — nombre/apellido/genero/fecha_nacimiento libres, y
+     * categoria_id solo si el precio no cambia (ApiRestEvent es quien decide
+     * eso, acá no se sabe el precio de ninguna categoría). NO es best-effort
+     * (a diferencia de `asignarNumeracion()`): si el push-back falla, el
+     * caller no debe dar el cambio por hecho — mismo criterio que
+     * `cobrarPagoSitio()`, es la única otra acción de este modelo que toca
+     * el dato real del participante en ApiRestEvent.
+     *
+     * @param  array<string, mixed>  $cambios  Solo las claves que cambiaron: nombre, apellido, genero, fecha_nacimiento, categoria_id.
+     * @return array{success: bool, error?: string}
+     */
+    public function editarDatos(array $cambios): array
+    {
+        if (! $this->editar_datos_url) {
+            return ['success' => false, 'error' => 'Este participante no tiene un link de edición (falta un sync).'];
+        }
+        if (! $cambios) {
+            return ['success' => true];
+        }
+
+        // Bug real (28/09/2026, encontrado en la verificación de punta a
+        // punta): Http::get($url, $query) REEMPLAZA el query string del
+        // link firmado en vez de agregarle los campos — se perdía
+        // `signature=...` y ApiRestEvent respondía 403 siempre. Mismo
+        // arreglo que `asignarNumeracion()`: los campos se pegan a mano al
+        // final de la URL, que ya trae su propia firma.
+        $separator = str_contains($this->editar_datos_url, '?') ? '&' : '?';
+        $url = $this->editar_datos_url . $separator . http_build_query($cambios);
+
+        try {
+            $response = Http::timeout(15)
+                ->withHeaders(['Accept' => 'application/json'])
+                ->get($url);
+        } catch (\Throwable $e) {
+            Log::warning('Editar datos: push-back a ApiRestEvent lanzó excepción', [
+                'retiro_id' => $this->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['success' => false, 'error' => 'No se pudo conectar con el sistema de inscripciones. Reintentá.'];
+        }
+
+        $body = $response->json();
+
+        if (! $response->successful() || ! ($body['success'] ?? false)) {
+            Log::warning('Editar datos: push-back a ApiRestEvent falló', [
+                'retiro_id' => $this->id,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return ['success' => false, 'error' => $body['error'] ?? 'No se pudo aplicar el cambio.'];
+        }
+
+        // Se actualiza con lo que ApiRestEvent CONFIRMÓ, no con lo que el staff
+        // tipeó — por si hubo algún ajuste server-side (trim, etc.).
+        $p = $body['participante'] ?? [];
+        $this->update(array_filter([
+            'nombre' => $p['nombre'] ?? null,
+            'apellido' => $p['apellido'] ?? null,
+            'genero' => $p['genero'] ?? null,
+            'fecha_nacimiento' => $p['fechaNacimiento'] ?? null,
+            'categoria_id' => $p['categoriaId'] ?? null,
+        ], fn ($v) => $v !== null));
+
+        return ['success' => true];
     }
 }

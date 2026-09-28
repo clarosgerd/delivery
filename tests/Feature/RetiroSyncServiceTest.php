@@ -62,4 +62,43 @@ class RetiroSyncServiceTest extends TestCase
         $this->assertNull($retiro->categoria_recalculada);
         $this->assertNull($retiro->categoria_recalculada_color);
     }
+
+    /**
+     * Editar datos del participante desde el POS (28/09/2026) — CategoriaId/
+     * EditarDatosUrl por fila, y CatalogoCategorias (JSON, contiene comas) se
+     * arma con fputcsv real para no depender de escapar comas a mano.
+     */
+    public function test_mapea_categoria_id_editar_datos_url_y_catalogo_de_la_primera_fila(): void
+    {
+        $config = EventoRetiroConfig::create([
+            'evento_id' => 1, 'evento_nombre' => 'Evento Test', 'csv_url' => 'https://fuente-csv.test/participantes.csv',
+        ]);
+
+        $header = ['Nombre', 'Apellido', 'Documento', 'Categoría', 'MontoPendiente', 'ConfirmarPagoSitioUrl',
+            'Estado de pago', 'Referencia', 'Talla/Polera', 'Souvenirs', 'Teléfono', 'Correo', 'Tipo de formulario',
+            'CategoriaId', 'EditarDatosUrl', 'CatalogoCategorias'];
+        $catalogo = json_encode(['Individual' => [['id' => 10, 'name' => '5K'], ['id' => 20, 'name' => '10K']]]);
+        $fila = ['Ana', 'Perez', '12345', '5K', '', '', 'paid', 'REF001', 'M', '', '70011122', 'ana@test.net',
+            'Individual', '10', 'https://api-test.example/editar-datos?signature=abc', $catalogo];
+
+        $buffer = fopen('php://temp', 'r+');
+        fputcsv($buffer, $header);
+        fputcsv($buffer, $fila);
+        rewind($buffer);
+        $csv = stream_get_contents($buffer);
+        fclose($buffer);
+
+        Http::fake(['fuente-csv.test/*' => Http::response($csv, 200)]);
+
+        (new RetiroSyncService())->sincronizar($config);
+
+        $this->assertDatabaseHas('retiros_sitio', [
+            'evento_id' => 1, 'documento' => '12345',
+            'categoria_id' => 10, 'editar_datos_url' => 'https://api-test.example/editar-datos?signature=abc',
+        ]);
+        $this->assertSame(
+            ['Individual' => [['id' => 10, 'name' => '5K'], ['id' => 20, 'name' => '10K']]],
+            $config->fresh()->categorias_catalogo
+        );
+    }
 }

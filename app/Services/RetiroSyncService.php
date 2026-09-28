@@ -112,6 +112,14 @@ class RetiroSyncService
                 // operado localmente.
                 'categoria_recalculada' => filled($fila['CategoriaRecalculada'] ?? null) ? $fila['CategoriaRecalculada'] : null,
                 'categoria_recalculada_color' => filled($fila['CategoriaRecalculadaColor'] ?? null) ? $fila['CategoriaRecalculadaColor'] : null,
+                // Editar datos del participante desde el POS (28/09/2026) —
+                // a diferencia de numero_corredor/chip, estas SÍ se pisan en
+                // cada re-sync: son solo el id/link para operar, no algo
+                // "cargado en el momento" — si el staff ya cambió la
+                // categoría vía el popup, el próximo CSV real trae el mismo
+                // cambio reflejado desde ApiRestEvent, no hay pisada.
+                'categoria_id' => filled($fila['CategoriaId'] ?? null) ? $fila['CategoriaId'] : null,
+                'editar_datos_url' => $fila['EditarDatosUrl'] ?? null,
             ]);
 
             // Numeración de corredor/chip: igual que el estado, solo se toca
@@ -140,6 +148,16 @@ class RetiroSyncService
         // toca — el default `true` de la migración sigue rigiendo.
         if (isset($filas[0]['UsaNumeracion'])) {
             $config->usa_numeracion = filled($filas[0]['UsaNumeracion']);
+        }
+
+        // Catálogo de categorías para el popup de "Editar datos" (28/09/2026)
+        // — solo va en la primera fila del CSV (igual que UsaNumeracion),
+        // agrupado por nombre de tipo de formulario.
+        if (filled($filas[0]['CatalogoCategorias'] ?? null)) {
+            $decodificado = json_decode($filas[0]['CatalogoCategorias'], true);
+            if (is_array($decodificado)) {
+                $config->categorias_catalogo = $decodificado;
+            }
         }
 
         $config->last_synced_at = now();
