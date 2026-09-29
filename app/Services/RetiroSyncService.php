@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\EventoRetiroConfig;
 use App\Models\RetiroSitio;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Lógica de sync del CSV de participantes, compartida entre el botón manual
@@ -52,91 +53,28 @@ class RetiroSyncService
                 continue;
             }
 
-            // Igual que en el import de delivery: el estado (entregado/no)
-            // solo se toca localmente, un re-sync nunca lo pisa.
-            $retiro = RetiroSitio::firstOrNew([
-                'evento_id' => $config->evento_id,
-                'documento' => $documento,
-            ]);
-
-            $monto = trim($fila['MontoPendiente'] ?? '');
-
-            $retiro->fill([
-                'nombre' => $fila['Nombre'] ?? null,
-                'apellido' => $fila['Apellido'] ?? null,
-                'categoria' => $fila['Categoría'] ?? null,
-                'tipo_formulario' => $fila['Tipo de formulario'] ?? null,
-                'talla' => $fila['Talla/Polera'] ?? null,
-                'souvenirs' => $fila['Souvenirs'] ?? null,
-                'telefono' => $fila['Teléfono'] ?? null,
-                'correo' => $fila['Correo'] ?? null,
-                // pago_status SÍ se pisa en cada re-sync (a diferencia de
-                // `estado`, que es operativo de este servicio): la fuente
-                // de verdad del pago es siempre ApiRestEvent, nunca algo
-                // que se opere acá — si ya se cobró en sitio en un sync
-                // previo, el próximo sync trae 'paid' desde el CSV real de
-                // todos modos, así que no hay pisada real de nada operado
-                // localmente.
-                'pago_status' => $fila['Estado de pago'] ?? null,
-                'monto' => $monto !== '' ? $monto : null,
-                'confirmar_pago_sitio_url' => $esElegibleCobroSitio ? $confirmarPagoSitioUrl : null,
-                'referencia' => $fila['Referencia'] ?? null,
-                // Aviso de numeración vs. género/edad real en entrega de kit
-                // (16/09/2026) — a diferencia de numero_corredor/chip, estas
-                // 3 sí se pisan en cada re-sync: género/fecha de nacimiento
-                // no se editan localmente, y la alerta es siempre recalculada
-                // por ApiRestEvent contra el estado vigente de la numeración
-                // (ver NumeracionRangoChecker) — no hay nada operado acá que
-                // un sync viejo pueda pisar por error.
-                'genero' => $fila['Género'] ?? null,
-                'fecha_nacimiento' => filled($fila['FechaNacimiento'] ?? null) ? $fila['FechaNacimiento'] : null,
-                // Edad usada para el aviso (16/09/2026) — no es la edad "de
-                // hoy", es la que ApiRestEvent calculó según el método de
-                // la categoría (ver CalculoEdadResolver) — mostrar esta en
-                // vez de calcularla de nuevo acá evita que la tarjeta
-                // muestre una edad distinta de la que realmente se usó
-                // para decidir si avisar o no.
-                'edad_calculada' => filled($fila['EdadCalculada'] ?? null) ? $fila['EdadCalculada'] : null,
-                'alerta_numeracion' => filled($fila['AlertaNumeracion'] ?? null) ? $fila['AlertaNumeracion'] : null,
-                // Fusión de inscripciones duplicadas por persona — curso
-                // pre-congreso (16/09/2026) — vacías salvo que esta persona
-                // también tenga una inscripción a un curso pre-congreso
-                // (ver OrganizadorDashboardController::exportCsv, que ya
-                // fusiona ambas filas del CSV en una sola).
-                'nombre_curso' => $fila['NombreCurso'] ?? null,
-                'id_curso' => $fila['IdCurso'] ?? null,
-                // Recategorización visual por edad/género (23/09/2026) —
-                // solo informativo, nunca reemplaza `categoria` arriba. Se
-                // pisa en cada re-sync igual que género/alerta_numeracion:
-                // es un dato calculado siempre por ApiRestEvent, no algo
-                // operado localmente.
-                'categoria_recalculada' => filled($fila['CategoriaRecalculada'] ?? null) ? $fila['CategoriaRecalculada'] : null,
-                'categoria_recalculada_color' => filled($fila['CategoriaRecalculadaColor'] ?? null) ? $fila['CategoriaRecalculadaColor'] : null,
-                // Editar datos del participante desde el POS (28/09/2026) —
-                // a diferencia de numero_corredor/chip, estas SÍ se pisan en
-                // cada re-sync: son solo el id/link para operar, no algo
-                // "cargado en el momento" — si el staff ya cambió la
-                // categoría vía el popup, el próximo CSV real trae el mismo
-                // cambio reflejado desde ApiRestEvent, no hay pisada.
-                'categoria_id' => filled($fila['CategoriaId'] ?? null) ? $fila['CategoriaId'] : null,
-                'editar_datos_url' => $fila['EditarDatosUrl'] ?? null,
-            ]);
-
-            // Numeración de corredor/chip: igual que el estado, solo se toca
-            // localmente si todavía está vacía — si el staff ya la cargó a
-            // mano en el POS (push-back a ApiRestEvent pendiente o fallido),
-            // un re-sync no debe pisarla con un valor vacío. Si el proveedor
-            // externo termina cargándola después, sí entra en el próximo sync.
-            if (empty($retiro->numero_corredor) && filled($fila['NumeroCorredor'] ?? null)) {
-                $retiro->numero_corredor = $fila['NumeroCorredor'];
+            // Una fila mala no debe tirar abajo el sync de TODO el evento
+            // (29/09/2026) — bug real en UAT: antes de esto, un
+            // QueryException al guardar UNA fila (ver el fix de
+            // categoria_id en sincronizarFila()) se propagaba sin atajar,
+            // así que `retiro:sincronizar-todos` abortaba entero (exit code
+            // 1) sin procesar ni siquiera el resto de las filas de ESTE
+            // evento, y el comando ni llegaba a intentar los eventos
+            // siguientes en el foreach de SincronizarRetiro::handle(). Ahora
+            // una fila que falle queda en $omitidos (con el motivo) y el
+            // sync sigue con la próxima — mismo criterio de resiliencia que
+            // se agregó en el comando (ver SincronizarRetiro::handle()).
+            try {
+                $this->sincronizarFila($config, $fila, $documento);
+                $actualizados++;
+            } catch (\Throwable $e) {
+                Log::warning('Sync de retiro en sitio: fila omitida por error', [
+                    'evento_id' => $config->evento_id,
+                    'documento' => $documento,
+                    'error' => $e->getMessage(),
+                ]);
+                $omitidos[] = $fila;
             }
-            if (empty($retiro->chip) && filled($fila['Chip'] ?? null)) {
-                $retiro->chip = $fila['Chip'];
-            }
-            $retiro->actualizar_numeracion_url = $fila['ActualizarNumeracionUrl'] ?? $retiro->actualizar_numeracion_url;
-
-            $retiro->save();
-            $actualizados++;
         }
 
         // Numeración/chip solo aplica a carreras, no a congresos
@@ -164,6 +102,108 @@ class RetiroSyncService
         $config->save();
 
         return ['ok' => true, 'actualizados' => $actualizados, 'omitidos' => $omitidos];
+    }
+
+    /**
+     * Una sola fila del CSV → un `RetiroSitio`. Separado de sincronizar()
+     * (29/09/2026) para poder envolverlo en try/catch por fila sin anidar
+     * demasiado — ver el comentario en sincronizar().
+     */
+    private function sincronizarFila(EventoRetiroConfig $config, array $fila, string $documento): void
+    {
+        $confirmarPagoSitioUrl = trim($fila['ConfirmarPagoSitioUrl'] ?? '');
+        $esElegibleCobroSitio = $confirmarPagoSitioUrl !== '';
+
+        // Igual que en el import de delivery: el estado (entregado/no)
+        // solo se toca localmente, un re-sync nunca lo pisa.
+        $retiro = RetiroSitio::firstOrNew([
+            'evento_id' => $config->evento_id,
+            'documento' => $documento,
+        ]);
+
+        $monto = trim($fila['MontoPendiente'] ?? '');
+
+        $retiro->fill([
+            'nombre' => $fila['Nombre'] ?? null,
+            'apellido' => $fila['Apellido'] ?? null,
+            'categoria' => $fila['Categoría'] ?? null,
+            'tipo_formulario' => $fila['Tipo de formulario'] ?? null,
+            'talla' => $fila['Talla/Polera'] ?? null,
+            'souvenirs' => $fila['Souvenirs'] ?? null,
+            'telefono' => $fila['Teléfono'] ?? null,
+            'correo' => $fila['Correo'] ?? null,
+            // pago_status SÍ se pisa en cada re-sync (a diferencia de
+            // `estado`, que es operativo de este servicio): la fuente
+            // de verdad del pago es siempre ApiRestEvent, nunca algo
+            // que se opere acá — si ya se cobró en sitio en un sync
+            // previo, el próximo sync trae 'paid' desde el CSV real de
+            // todos modos, así que no hay pisada real de nada operado
+            // localmente.
+            'pago_status' => $fila['Estado de pago'] ?? null,
+            'monto' => $monto !== '' ? $monto : null,
+            'confirmar_pago_sitio_url' => $esElegibleCobroSitio ? $confirmarPagoSitioUrl : null,
+            'referencia' => $fila['Referencia'] ?? null,
+            // Aviso de numeración vs. género/edad real en entrega de kit
+            // (16/09/2026) — a diferencia de numero_corredor/chip, estas
+            // 3 sí se pisan en cada re-sync: género/fecha de nacimiento
+            // no se editan localmente, y la alerta es siempre recalculada
+            // por ApiRestEvent contra el estado vigente de la numeración
+            // (ver NumeracionRangoChecker) — no hay nada operado acá que
+            // un sync viejo pueda pisar por error.
+            'genero' => $fila['Género'] ?? null,
+            'fecha_nacimiento' => filled($fila['FechaNacimiento'] ?? null) ? $fila['FechaNacimiento'] : null,
+            // Edad usada para el aviso (16/09/2026) — no es la edad "de
+            // hoy", es la que ApiRestEvent calculó según el método de
+            // la categoría (ver CalculoEdadResolver) — mostrar esta en
+            // vez de calcularla de nuevo acá evita que la tarjeta
+            // muestre una edad distinta de la que realmente se usó
+            // para decidir si avisar o no.
+            'edad_calculada' => filled($fila['EdadCalculada'] ?? null) ? $fila['EdadCalculada'] : null,
+            'alerta_numeracion' => filled($fila['AlertaNumeracion'] ?? null) ? $fila['AlertaNumeracion'] : null,
+            // Fusión de inscripciones duplicadas por persona — curso
+            // pre-congreso (16/09/2026) — vacías salvo que esta persona
+            // también tenga una inscripción a un curso pre-congreso
+            // (ver OrganizadorDashboardController::exportCsv, que ya
+            // fusiona ambas filas del CSV en una sola).
+            'nombre_curso' => $fila['NombreCurso'] ?? null,
+            'id_curso' => $fila['IdCurso'] ?? null,
+            // Recategorización visual por edad/género (23/09/2026) —
+            // solo informativo, nunca reemplaza `categoria` arriba. Se
+            // pisa en cada re-sync igual que género/alerta_numeracion:
+            // es un dato calculado siempre por ApiRestEvent, no algo
+            // operado localmente.
+            'categoria_recalculada' => filled($fila['CategoriaRecalculada'] ?? null) ? $fila['CategoriaRecalculada'] : null,
+            'categoria_recalculada_color' => filled($fila['CategoriaRecalculadaColor'] ?? null) ? $fila['CategoriaRecalculadaColor'] : null,
+            // Editar datos del participante desde el POS (28/09/2026) —
+            // a diferencia de numero_corredor/chip, estas SÍ se pisan en
+            // cada re-sync: son solo el id/link para operar, no algo
+            // "cargado en el momento" — si el staff ya cambió la
+            // categoría vía el popup, el próximo CSV real trae el mismo
+            // cambio reflejado desde ApiRestEvent, no hay pisada.
+            // Bug real (29/09/2026, UAT: "Data truncated for column
+            // categoria_id") — el CSV puede traer un valor no numérico en
+            // esta columna si algo cambia del lado de ApiRestEvent (ya
+            // corregido ahí, pero esto es defensa en profundidad: la
+            // columna es BIGINT, nunca hay que confiarle a ApiRestEvent
+            // un valor sin validar antes de escribirlo).
+            'categoria_id' => is_numeric($fila['CategoriaId'] ?? null) ? (int) $fila['CategoriaId'] : null,
+            'editar_datos_url' => $fila['EditarDatosUrl'] ?? null,
+        ]);
+
+        // Numeración de corredor/chip: igual que el estado, solo se toca
+        // localmente si todavía está vacía — si el staff ya la cargó a
+        // mano en el POS (push-back a ApiRestEvent pendiente o fallido),
+        // un re-sync no debe pisarla con un valor vacío. Si el proveedor
+        // externo termina cargándola después, sí entra en el próximo sync.
+        if (empty($retiro->numero_corredor) && filled($fila['NumeroCorredor'] ?? null)) {
+            $retiro->numero_corredor = $fila['NumeroCorredor'];
+        }
+        if (empty($retiro->chip) && filled($fila['Chip'] ?? null)) {
+            $retiro->chip = $fila['Chip'];
+        }
+        $retiro->actualizar_numeracion_url = $fila['ActualizarNumeracionUrl'] ?? $retiro->actualizar_numeracion_url;
+
+        $retiro->save();
     }
 
     private function parsearCsv(string $contenido): array
