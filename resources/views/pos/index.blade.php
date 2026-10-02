@@ -194,13 +194,18 @@ function render(items) {
             ? '<br>Curso: <strong>' + escapeHtml(r.nombre_curso) + '</strong>'
             : '';
 
-        // Recategorización visual por edad/género (23/09/2026) — solo
-        // aparece si ApiRestEvent calculó una categoría real distinta a la
-        // que el participante eligió (ver categoria más arriba). Nunca
-        // cambia la inscripción, es puramente informativo para el staff —
-        // por eso no usa el mismo ámbar que alertaNumeracionHtml (eso es
-        // para avisos que requieren corregir algo).
-        const categoriaRecalculadaHtml = (r.categoria_recalculada && r.categoria_recalculada !== r.categoria)
+        // Recategorización visual por edad/género (23/09/2026, ampliado
+        // 02/10/2026) — aparece siempre que ApiRestEvent haya podido
+        // resolver una categoría real por categoría+género+edad (antes solo
+        // se mostraba si era DISTINTA a la elegida, como alerta de
+        // desacuerdo; ahora el fix de RecategorizacionResolver hace que
+        // `categoria_recalculada` confirme la propia categoría cuando es
+        // válida, así que el color es útil también como color-tag
+        // informativo — no solo como advertencia). Nunca cambia la
+        // inscripción — por eso no usa el mismo ámbar que
+        // alertaNumeracionHtml (eso es para avisos que requieren corregir
+        // algo).
+        const categoriaRecalculadaHtml = r.categoria_recalculada
             ? ' · Real por edad/género: <span style="display:inline-block;width:10px;height:10px;border-radius:50%;'
                 + 'background:' + escapeHtml(r.categoria_recalculada_color || '#94a3b8') + ';vertical-align:middle;margin-right:3px;"></span>'
                 + '<strong>' + escapeHtml(r.categoria_recalculada) + '</strong>'
