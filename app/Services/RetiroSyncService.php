@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\EventoRetiroConfig;
 use App\Models\RetiroSitio;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -29,6 +30,7 @@ class RetiroSyncService
 
         $actualizados = 0;
         $omitidos = [];
+        $descuadres = [];
 
         foreach ($filas as $fila) {
             // Cobro en sitio (12/08/2026) — ver
@@ -65,6 +67,11 @@ class RetiroSyncService
             // sync sigue con la próxima — mismo criterio de resiliencia que
             // se agregó en el comando (ver SincronizarRetiro::handle()).
             try {
+                // Antes de sobrescribir: si delivery tiene número/chip y la
+                // API no (o distinto), queda como descuadre para el aviso.
+                if ($descuadre = $this->detectarDescuadre($config, $fila, $documento)) {
+                    $descuadres[] = $descuadre;
+                }
                 $this->sincronizarFila($config, $fila, $documento);
                 $actualizados++;
             } catch (\Throwable $e) {
@@ -98,10 +105,69 @@ class RetiroSyncService
             }
         }
 
+        Cache::put(self::claveDescuadre($config->evento_id), $descuadres, now()->addDays(2));
+
         $config->last_synced_at = now();
         $config->save();
 
-        return ['ok' => true, 'actualizados' => $actualizados, 'omitidos' => $omitidos];
+        return ['ok' => true, 'actualizados' => $actualizados, 'omitidos' => $omitidos, 'descuadres' => count($descuadres)];
+    }
+
+    /**
+     * Clave de caché donde el último sync deja los descuadres de numeración
+     * de un evento. La lee el aviso diario y el POS (ver PosController).
+     */
+    public static function claveDescuadre(int $eventoId): string
+    {
+        return "numeracion_descuadre.{$eventoId}";
+    }
+
+    /**
+     * Compara lo que tiene delivery contra el CSV de ApiRestEvent (lo que
+     * luego va a ChronoTrack). Solo reporta cuando delivery tiene un dato y
+     * la API no, o los dos tienen valores distintos. Si la API tiene dato y
+     * delivery no, no es descuadre: el sync lo completa solo.
+     *
+     * @return array{documento: string, nombre: ?string, apellido: ?string, numero_delivery: string, numero_api: string, chip_delivery: string, chip_api: string, problemas: list<string>}|null
+     */
+    private function detectarDescuadre(EventoRetiroConfig $config, array $fila, string $documento): ?array
+    {
+        $local = RetiroSitio::where('evento_id', $config->evento_id)->where('documento', $documento)->first();
+        if (! $local) {
+            return null;
+        }
+
+        $numeroDelivery = trim((string) $local->numero_corredor);
+        $numeroApi = trim((string) ($fila['NumeroCorredor'] ?? ''));
+        $chipDelivery = trim((string) $local->chip);
+        $chipApi = trim((string) ($fila['Chip'] ?? ''));
+
+        $problemas = [];
+        if ($numeroDelivery !== '' && $numeroApi === '') {
+            $problemas[] = 'numero_pendiente_en_api';
+        } elseif ($numeroDelivery !== '' && $numeroApi !== $numeroDelivery) {
+            $problemas[] = 'numero_distinto';
+        }
+        if ($chipDelivery !== '' && $chipApi === '') {
+            $problemas[] = 'chip_pendiente_en_api';
+        } elseif ($chipDelivery !== '' && $chipApi !== $chipDelivery) {
+            $problemas[] = 'chip_distinto';
+        }
+
+        if ($problemas === []) {
+            return null;
+        }
+
+        return [
+            'documento' => $documento,
+            'nombre' => $local->nombre,
+            'apellido' => $local->apellido,
+            'numero_delivery' => $numeroDelivery,
+            'numero_api' => $numeroApi,
+            'chip_delivery' => $chipDelivery,
+            'chip_api' => $chipApi,
+            'problemas' => $problemas,
+        ];
     }
 
     /**

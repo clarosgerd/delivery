@@ -16,3 +16,7 @@ Artisan::command('inspire', function () {
 // propios crons.
 Schedule::command('delivery:sincronizar-todos')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('retiro:sincronizar-todos')->everyFiveMinutes()->withoutOverlapping();
+
+// Aviso diario de descuadres de numeración/chip entre delivery y ApiRestEvent: lee lo
+// que dejó el último sync y avisa a NUMERACION_ALERTA_EMAILS si hay casos.
+Schedule::command('retiro:alertar-descuadre-numeracion')->dailyAt('08:00')->withoutOverlapping();

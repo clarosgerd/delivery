@@ -4,6 +4,22 @@
 
 @section('content')
 <div class="max-w-2xl mx-auto">
+    @if (session('status'))
+        <div class="mb-3 rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800">{{ session('status') }}</div>
+    @endif
+
+    @if (count($pendientesApi) > 0)
+        {{-- Números entregados que todavía no llegaron a ApiRestEvent (ChronoTrack los omite). --}}
+        <div class="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <div class="font-semibold">{{ count($pendientesApi) }} participante(s) con número o chip entregado que todavía no llegó a ApiRestEvent.</div>
+            <div class="mt-1">ChronoTrack sale desde ApiRestEvent, así que estos participantes no aparecerán en la exportación.</div>
+            <form method="POST" action="{{ route('pos.reenviar-numeracion', $evento->evento_id) }}" class="mt-2">
+                @csrf
+                <button type="submit" class="px-3 py-2 rounded-md bg-amber-600 text-white hover:bg-amber-700">Reenviar a ApiRestEvent</button>
+            </form>
+        </div>
+    @endif
+
     <x-card>
         <div class="flex justify-between items-center mb-1">
             <label class="block text-sm font-medium">Evento</label>

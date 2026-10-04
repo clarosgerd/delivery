@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\EventoRetiroConfig;
 use App\Models\RetiroSitio;
+use App\Services\RetiroSyncService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class PosController extends Controller
 {
@@ -40,7 +42,44 @@ class PosController extends Controller
     {
         return view('pos.index', [
             'evento' => $evento,
+            'pendientesApi' => $this->pendientesApi($evento),
         ]);
+    }
+
+    /**
+     * Reenvía a ApiRestEvent el número/chip que delivery tiene y la API no
+     * (aviso del POS, 04/10/2026). Solo toca los casos "pendiente_en_api"
+     * del último sync; los de "distinto" no se pisan solos.
+     */
+    public function reenviarNumeracion(EventoRetiroConfig $evento)
+    {
+        $pendientes = $this->pendientesApi($evento);
+        $documentos = collect($pendientes)->pluck('documento')->all();
+
+        $ok = 0;
+        $fallidos = 0;
+        RetiroSitio::where('evento_id', $evento->evento_id)
+            ->whereIn('documento', $documentos)
+            ->get()
+            ->each(function (RetiroSitio $retiro) use (&$ok, &$fallidos) {
+                $retiro->reenviarNumeracionAApi() ? $ok++ : $fallidos++;
+            });
+
+        $mensaje = "Reenvío: {$ok} enviado(s)".($fallidos ? ", {$fallidos} con error" : '').'.';
+
+        return redirect()->route('pos.show', $evento->evento_id)->with('status', $mensaje);
+    }
+
+    /**
+     * Casos del último sync donde delivery tiene número/chip y la API no lo
+     * tiene (ver RetiroSyncService::detectarDescuadre).
+     */
+    private function pendientesApi(EventoRetiroConfig $evento): array
+    {
+        $casos = Cache::get(RetiroSyncService::claveDescuadre($evento->evento_id), []);
+
+        return array_values(array_filter($casos, fn (array $caso) => collect($caso['problemas'])
+            ->contains(fn (string $p) => in_array($p, ['numero_pendiente_en_api', 'chip_pendiente_en_api'], true))));
     }
 
     /**

@@ -177,6 +177,51 @@ class RetiroSitio extends Model
     }
 
     /**
+     * Reenvío manual del número/chip vigente a ApiRestEvent (aviso del POS,
+     * 04/10/2026). A diferencia de `asignarNumeracion()`, manda SIEMPRE los
+     * valores que tiene delivery, no solo los cambios: un número que ya
+     * estaba localmente y nunca llegó a la API tiene que poder reenviarse.
+     * Devuelve false si no pudo (sin URL, sin número o error de red).
+     */
+    public function reenviarNumeracionAApi(): bool
+    {
+        if (! $this->actualizar_numeracion_url || blank($this->numero_corredor)) {
+            return false;
+        }
+
+        $parametros = array_filter(
+            ['numero_corredor' => $this->numero_corredor, 'chip' => $this->chip],
+            fn ($valor) => filled($valor)
+        );
+
+        try {
+            $separator = str_contains($this->actualizar_numeracion_url, '?') ? '&' : '?';
+            $response = Http::timeout(10)
+                ->withHeaders(['Accept' => 'application/json'])
+                ->get($this->actualizar_numeracion_url.$separator.http_build_query($parametros));
+
+            if ($response->successful()) {
+                $alerta = $response->json('alertaNumeracion');
+                $this->update(['alerta_numeracion' => filled($alerta) ? $alerta : null]);
+
+                return true;
+            }
+
+            Log::warning('Reenvío de numeración a ApiRestEvent falló', [
+                'retiro_id' => $this->id,
+                'status' => $response->status(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Reenvío de numeración a ApiRestEvent lanzó excepción', [
+                'retiro_id' => $this->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return false;
+    }
+
+    /**
      * Cobro en sitio (12/08/2026) — a diferencia de `asignarNumeracion()`,
      * esto **no** es best-effort: si el push-back a ApiRestEvent falla, NO
      * se marca `pago_status=paid` acá ni se debe proceder a entregar el

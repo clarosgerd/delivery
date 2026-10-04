@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Correos de los super admin para el aviso diario de descuadres de
+    // numeración (ver retiro:alertar-descuadre-numeracion), separados por
+    // coma. Vacío = solo queda en el log.
+    'numeracion' => [
+        'alerta_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('NUMERACION_ALERTA_EMAILS', ''))))),
+    ],
+
 ];
